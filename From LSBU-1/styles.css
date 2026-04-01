@@ -1,0 +1,66 @@
+/* General Styles */
+body {
+    font-family: Arial, sans-serif;
+    margin: 20px;
+    background-color: #333;
+    color: #ffffff;
+}
+
+/* Header */
+h2 {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+/* Controls Container */
+.controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+}
+
+/* Date Range Section */
+.date-range {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* Action Buttons Section */
+.actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* Button Styles */
+button {
+    padding: 8px 16px;
+    background-color: #00e1ff;
+    border: none;
+    border-radius: 4px;
+    color: #000000;
+    cursor: pointer;
+}
+
+button:hover {
+    background-color: #3ffd6e;
+}
+
+/* Input Styles */
+input[type="datetime-local"] {
+    padding: 6px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+/* Chart Canvas */
+canvas {
+    background-color: #000000;
+    color: #ffffff;
+    font-weight: bold;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}

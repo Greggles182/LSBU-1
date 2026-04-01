@@ -1,0 +1,2 @@
+# Tailscale packages for raspbian bookworm
+deb https://pkgs.tailscale.com/stable/raspbian bookworm main

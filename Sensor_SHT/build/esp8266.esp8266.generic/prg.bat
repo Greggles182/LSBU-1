@@ -1,0 +1,1 @@
+python "D:\LSBU-1\Code\f2.py"

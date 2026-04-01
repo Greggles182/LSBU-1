@@ -1,0 +1,453 @@
+/*@import url(http://fonts.googleapis.com/css?family=Montserrat);*/
+* {
+  margin: 0;
+  padding: 0;
+  font-family: Montserrat, sans-serif;
+}
+body{
+  background: #232323;
+}
+.divider {
+  background: #232323;
+}
+#leftToolbar{
+  width: 197px; 
+  height: 100vh; 
+  border-right: 3px solid #2e2e2e; 
+  border-top:none; 
+  border-left:none; 
+  border-bottom:none;
+  position: absolute; 
+  top: 0; 
+  z-index:5;
+}
+.vertmainText{
+  font-size: 16px;
+  position: relative;
+  top: 40%;
+  transform: translateY(-50%);
+  overflow:hidden;
+}
+.subText{
+  font-size: 10px;
+  position: relative;
+  top: 16px;
+  overflow:hidden;
+}
+.vertToolbarButton {
+  background: #232323;
+  height: 57px;
+  color: white;
+  width: 197px;
+  text-decoration: none;
+  text-align: center;
+  vertical-align: middle;
+  border-bottom: 3px solid #2e2e2e;
+  border-top: none;
+  border-left: none;
+  border-right: 3px solid #2e2e2e;
+  font-family: Montserrat, sans-serif;
+  text-shadow: 0 0 1px rgba(255, 255, 255, 0.5);
+  outline: none;
+  position: absolute;
+  z-index: 3;
+  visibility: hidden;
+}
+.vertToolbarButton:hover{
+  background-color: #2e2e2e;
+  cursor: pointer;
+}
+.formButton {
+  border-radius:6px;
+  border-color: #2e2e2e;
+  background: white;
+  height: 40px;
+  font-size: 14px;
+  line-height: 40px;
+  width: 200px;
+  text-decoration: none;
+  font-family: Montserrat, sans-serif;
+  outline: none;
+  position: absolute;
+  visibility: hidden;
+  z-index:2;
+}
+.formButton:hover{
+  background-color: lime;
+  cursor: pointer;
+}
+.horizToolbarButton {
+  background: #232323;
+  height: 57px;
+  color: white;
+  width: 147px;
+  text-decoration: none;
+  text-align: center;
+  vertical-align: middle;
+  border-bottom: 3px solid #2e2e2e;
+  border-top: none;
+  border-left: none;
+  border-right: 3px solid #2e2e2e;
+  font-family: Montserrat, sans-serif;
+  text-shadow: 0 0 1px rgba(255, 255, 255, 0.5);
+  outline: none;
+  position: absolute;
+  z-index: 4;
+  visibility: hidden;
+}
+.horizmainText{
+  font-size: 16px; 
+  position: relative; 
+  top: 50%; 
+  transform: translateY(-50%);
+  overflow:hidden;
+}
+.horizToolbarButton:hover{
+  background-color: #2e2e2e;
+  cursor: pointer;
+}
+#errMessage{
+  position:absolute; 
+  top:360px; 
+  left:5px; 
+  color:red; 
+  font-size:10px; 
+  z-index: 3; 
+  width: 190px;
+  visibility: visible;
+}
+#errorLabel{
+  position:absolute; 
+  top:125px; 
+  left:550px; 
+  font-family: Montserrat, sans-serif; 
+  font-size:12px; 
+  color: red; 
+  z-index:2;
+}
+#channelLabel{
+  visibility: hidden; 
+  position:absolute; 
+  top:92px; 
+  left:250px; 
+  color:white; 
+  font-size:16px;
+}
+canvas {
+  border:none;
+  width: calc(100vw - 403px);
+  height: calc(100vh - 80px);
+}
+.sessionTable {
+  background: white;
+  border-radius:3px;
+  border-collapse: collapse;
+  position: absolute;
+  font-family: Montserrat, sans-serif;
+  font-size: 14px;
+  top:140px;
+  left:250px;
+  margin: auto;
+  z-index: 1;
+}
+.sessionTable th {
+    padding:15px;
+  border-radius:3px;
+}
+.sessionTable td {
+  text-align: center;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -khtml-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+.sessionTable tr:last-child>td{
+  padding-bottom:15px;
+  border-radius:3px;
+}	
+.sessionTable tr:hover{
+  background-color: lime;
+  cursor: pointer;
+}
+.sessionTable thead>tr:hover{
+  background-color: white;
+  cursor: default;
+}
+#channelTable {
+  border-radius:3px;
+  border-collapse: collapse;
+  position: absolute;
+  font-family: Montserrat, sans-serif;
+  font-size: 14px;
+  top:140px;
+  left:250px;
+  margin: auto;
+  z-index: 1;
+}
+#channelTable tr:first-child>td {
+    padding:15px;
+  background-color: rgba(65,105,225,1);
+}
+#channelTable tr:first-child>td:hover {
+  background-color: rgba(65,105,225,0.5);
+}
+#channelTable td {
+  text-align: center;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -khtml-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+#channelTable tr:last-child>td{
+  padding-bottom:15px;
+  border-bottom-left-radius:3px;
+  border-bottom-right-radius:3px;
+}	
+
+#timescaleTable, #settingsTable, #optionsTable{
+  position: absolute;
+  font-family: Montserrat, sans-serif;
+  font-size: 14px;
+  top:140px;
+  left:250px;
+  margin: auto;
+  z-index: 1;
+}
+#timescaleTable td, #settingsTable td, #optionsTable td, #configTable td {
+  text-align: left;
+  padding:10px;
+}	 
+
+.legend tr:first-child>td {padding-top: 10px;}
+.legend td {font-size: 12px; color: white; margin-right: 10px; display:table-cell;}
+.legend span {float: left; width: 12px; height: 12px; margin: 2px; }
+
+/* keyframes:
+//csvDown
+//csvAcross
+//chartAcross
+//csvBack
+//chartBack
+//sessionAcross
+//timescaleAcross
+//typeDone
+//chanDone
+//settingsDone */
+@keyframes csvOut {
+  0%   {left:0px; top:70px; width:200px;}
+  20% {left:200px; top:70px; width:100px;}
+  100% {left:400px; top:80px; width:100px;}
+}
+.csvOut {
+  z-index: 1;
+  animation: csvOut 0.3s ease 0s 1;
+  animation-fill-mode: forwards;
+}
+.ncsvOut {
+  z-index: 1;
+  left:400px; top:80px; width:100px;
+}
+@keyframes chartOut {
+  0%   {left:0px; top:70px; width:200px;}
+  20% {left:200px; top:70px; width:100px;}
+  100% {left:250px; top:80px; width:100px;}
+}
+.chartOut {
+  z-index: 1;
+  animation: chartOut 0.3s ease 0s 1;
+  animation-fill-mode: forwards;
+}
+.nchartOut {
+  z-index: 1;
+  left:250px; top:80px; width:100px;
+}
+@keyframes rangeDoneOut {
+  0%   {left:0px; top:130px; width:200px;}
+  20% {left:200px; top:130px; width:100px;}
+  100% {left:550px; top:80px; width:100px;}
+}
+.rangeDoneOut {
+  z-index: 1;
+  animation: rangeDoneOut 0.3s ease 0s 1;
+  animation-fill-mode: forwards;
+}
+.nrangeDoneOut {
+  z-index: 1;
+  left:550px; top:80px; width:100px;
+}
+@keyframes channelsDoneOut {
+  0%   {left:0px; top:190px; width:200px;}
+  20% {left:200px; top:190px; width:100px;}
+  100% {left:550px; top:80px; width:100px;}
+}
+.channelsDoneOut {
+  z-index: 1;
+  animation: channelsDoneOut 0.3s ease 0s 1;
+  animation-fill-mode: forwards;
+}
+.nchannelsDoneOut {
+  z-index: 1;
+  left:550px; top:80px; width:100px;
+}
+@keyframes settingsDoneOut {
+  0%   {left:0px; top:250px; width:200px;}
+  20% {left:200px; top:250px; width:100px;}
+  100% {left:550px; top:80px; width:100px;}
+}
+.settingsDoneOut {
+  z-index: 1;
+  animation: settingsDoneOut 0.3s ease 0s 1;
+  animation-fill-mode: forwards;
+}
+.nsettingsDoneOut {
+  z-index: 1;
+  left:550px; top:80px; width:100px;
+}
+@keyframes optionsDoneOut {
+  0%   {left:0px; top:60px; width:200px;}
+  20% {left:200px; top:60px; width:100px;}
+  100% {left:550px; top:80px; width:100px;}
+}
+.optionsDoneOut {
+  z-index: 1;
+  animation: optionsDoneOut 0.3s ease 0s 1;
+  animation-fill-mode: forwards;
+}
+.noptionsDoneOut {
+  z-index: 1;
+  left:550px; top:80px; width:100px;
+}
+@keyframes configDoneOut {
+  0%   {left:150px; top:-30px; width:150px;}
+  100% {left:175px; top:150px; width:100px;}
+}
+.configDoneOut {
+  z-index: 1;
+  animation: configDoneOut 0.2s ease 0s 1;
+  animation-fill-mode: forwards;
+}
+.nconfigDoneOut {
+  z-index: 1;
+  left:175px; top:150px; width:100px;
+}
+@keyframes generateOut {
+  0% {left:550px; top:80px; width:100px;}
+  100%  {left:0px; top:300px; width:200px;}
+}
+.generateOut {
+  z-index: 3;
+  animation: generateOut 0.3s ease 0s 1;
+  animation-fill-mode: forwards;
+}
+.ngenerateOut {
+  z-index: 3;
+  left:0px; top:300px; width:200px;
+}
+@keyframes typeUp {
+  0% {left:0px; top:60px; width:197px;}
+  100%  {left:200px; top:0px; width:147px;}
+}
+.typeUp {
+  z-index: 3;
+  animation: typeUp 0.3s ease 0s 1;
+  animation-fill-mode: forwards;
+}
+@keyframes rangeUp {
+  0% {left:0px; top:120px; width:197px;}
+  100%  {left:200px; top:0px; width:147px;}
+}
+.rangeUp {
+  z-index: 3;
+  animation: rangeUp 0.3s ease 0s 1;
+  animation-fill-mode: forwards;
+}
+@keyframes channelsUp {
+  0% {left:0px; top:180px; width:197px;}
+  100%  {left:200px; top:0px; width:147px;}
+}
+.channelsUp {
+  z-index: 3;
+  animation: channelsUp 0.3s ease 0s 1;
+  animation-fill-mode: forwards;
+}
+@keyframes settingsUp {
+  0% {left:0px; top:240px; width:197px;}
+  100%  {left:200px; top:0px; width:147px;}
+}
+.settingsUp {
+  z-index: 3;
+  animation: settingsUp 0.3s ease 0s 1;
+  animation-fill-mode: forwards;
+}
+@keyframes generateUp {
+  0% {left:0px; top:300px; width:197px;}
+  100%  {left:200px; top:0px; width:147px;}
+}
+.generateUp {
+  z-index: 3;
+  animation: generateUp 0.3s ease 0s 1;
+  animation-fill-mode: forwards;
+}
+@keyframes optionsDown {
+  0%  {left:200px; top:0px; width:147px;}
+  70% {left:200px; top:60px; width:147px;}
+  100% {left:0px; top:60px; width:197px;}
+}
+.optionsDown {
+  animation: optionsDown 0.3s ease 0s 1;
+  animation-fill-mode: forwards;
+}
+.noptionsDown {
+  left:0px; top:60px; width:197px;
+}
+@keyframes exportDown {
+  0%  {left:200px; top:0px; width:147px;}
+  70% {left:200px; top:120px; width:147px;}
+  100% {left:0px; top:120px; width:197px;}
+}
+.exportDown {
+  animation: exportDown 0.3s ease 0s 1;
+  animation-fill-mode: forwards;
+}
+.nexportDown {
+  left:0px; top:120px; width:197px;
+}
+@keyframes deleteDown {
+  0%  {left:200px; top:0px; width:147px;}
+  70% {left:200px; top:180px; width:147px;}
+  100% {left:0px; top:180px; width:197px;}
+}
+.deleteDown {
+  animation: deleteDown 0.3s ease 0s 1;
+  animation-fill-mode: forwards;
+}
+.ndeleteDown {
+  left:0px; top:180px; width:197px;
+}
+@keyframes shiftTab {
+  0%  {left:150px;}
+  100% {left:0px;}
+}
+.shiftTab {
+  animation: shiftTab 0.2s ease 0s 1;
+  animation-fill-mode: forwards;
+}
+#legendDiv{
+  z-index:1; 
+  position:absolute; 
+  top:80px; 
+  left: calc(100vw - 200px); 
+  font-size: 20px; 
+  color: white; 
+  text-decoration: underline; 
+  visibility: hidden;
+}
+#chartCanvas{
+  position: absolute; 
+  top: 60px; 
+  left: 203px;
+}

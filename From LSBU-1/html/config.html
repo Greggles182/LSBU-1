@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <link rel="stylesheet" href="/css/config.css">
+  <link rel="stylesheet" href="/css/fonts/font.css">
+  <link rel="stylesheet" href="/css/running.css">
+  <link rel="stylesheet" href="/css/tableStyles.css">
+  <link rel="stylesheet" href="/css/loader.css">
+  <link rel="stylesheet" href="/css/toolbar.css">
+  <script src="/js/config.js"></script>
+  <script src="/js/toolbar.js"></script>
+  <script src="/js/tableEditing.js"></script>
+</head>
+
+<body onload="getStatus();setInterval(function(){getStatus();}, 3000);">
+<div id="loader-wrapper" style="visibility:hidden;"><div id="loader"></div></div>
+<div id="upperToolbar"></div>
+<div id="btnHome" onclick="window.location.href ='index.html';"></div>
+<div id="btnConfig" onclick="btnConfigClick();"></div>
+<div id="configContainer">
+  <h4>Backups:</h4>
+  <table>
+    <tr><td><div class="btnConfig btnBackupDB" onclick="backupDB();" title="Perform database backup">DB backup</div></td></tr>
+  </table>
+  <h3>Troubleshooting:</h3>
+  <table>
+    <tr><td><div class="btnConfig btnErrorLog" onclick="viewErrLog();" title="View error log">Error log</div></td></tr>
+    <tr><td><div class="btnConfig btnClearLog" onclick="clearErrLog();" title="Clear error log">Clear error log</div></td></tr>
+    <tr><td><div class="btnConfig btnTroubleshooting" onclick="viewTroubleshooting();" title="Visit troubleshooting page">Troubleshooting</div></td></tr>
+  </table>
+</div>
+<div id="containerRunning">
+	<table class="navContainer">
+		<tr><td><div id="status"></div></td></tr>
+		<tr><td>
+			<div id='c'>
+				<div class='dots'></div>
+				<div class='dots'></div>
+				<div class='dots'></div>
+				<div class='dots'></div>
+				<div class='dots'></div>
+				<div class='dots'></div>
+			</div>
+		</td></tr>
+		<tr><td><table><tr><td><div class="nav" id="btnPause" onclick="btnPauseClick();"></div></td>
+		<td><div class="nav" id="btnStop" onclick="stop();">Stop</div></td></tr></table></td></tr>
+	</table>
+</div>
+<div id="containerStopped">
+	<table class="navContainer">
+		<tr>
+			<td><div class="nav" id="btnGet" onclick="getConfig();">Get config</div></td>
+			<td><div class="nav" id="btnSet" onclick="setConfig();">Set config</div></td>
+			<td><div class="nav" id="btnStart" onclick="start();">Set and start</div></td>
+		</tr>
+	</table>
+	
+	<table id="dataTable" cellspacing="0" cellpadding="0">
+		<tr>
+			<td>
+				<table id="thead" cellspacing="0" cellpadding="0">
+					<tr><th colspan="3"><div id="topLeftDiv"></div></th>
+          <th colspan="4"><div id="middleDiv">Session name: <input type="text" id="sessionNameText" maxlength="18"></div></th>
+          <th colspan="2"><div id="topRightDiv">Search: <input type="text" id="searchText" onkeyup="search(this.value);" maxlength="14"></div></th></tr>
+					<tr><th>Enabled</th><th>Slave address</th><th>Channel address</th><th>Name</th><th>Type</th><th>Interval</th><th>Slope</th><th>Offset</th><th>Units</th></tr>
+				</table>
+			</td>
+		</tr>
+		<tr>
+			<td>
+				<div id=scrollDiv>
+					<table id="tbody" cellspacing="0" cellpadding="0">
+					</table></div>
+				</td>
+		</tr>
+		<tr>
+			<td>
+				<table id="tfoot" cellspacing="0" cellpadding="0">
+					<tr><th>&nbsp;</th></tr>
+				</table>
+			</td>
+		</tr>
+	</table>
+</div>
+<input type="text" id="editText" onkeydown="textEditKeyDown(event);" onfocusout="textEditDone();">
+	<select id="editCombo" onchange="comboEditChange();" onfocusout="comboEditChange();" onkeydown="comboEditKeyDown(event);">
+	  <option>PT-100 2 wire</option>
+	  <option>PT-100 3 wire</option>
+	  <option>PT-100 4 wire</option>
+	</select>
+</body>
+</html>

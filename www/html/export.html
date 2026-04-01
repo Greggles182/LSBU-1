@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+    <link rel="manifest" href="/site.webmanifest">
+    <title>Logger Config</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            height: 100vh;
+            background-color: #333;
+            color: #ffffff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .wrapper {
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+            max-width: 1200px;
+        }
+        
+        .container {
+            width: 40%;
+            padding: 20px;
+            background-color: #444;
+            border-radius: 8px;
+        }
+        
+        .right-container {
+            width: 40%;
+            padding: 20px;
+            background-color: #555;
+            border-radius: 8px;
+        }
+        
+        h1, h2 {
+            text-align: center;
+        }
+        
+        button {
+            padding: 8px 16px;
+            background-color: #00e1ff;
+            border: none;
+            border-radius: 4px;
+            color: #000000;
+            cursor: pointer;
+            margin-bottom: 10px; /* Adds spacing between buttons */
+        }
+        
+        button:hover {
+            background-color: #3ffd6e;
+        }
+        
+        input[type="number"],
+        input[type="text"] {
+            padding: 6px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            width: 100%;
+        }
+        
+        .home-button {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            padding: 10px 20px;
+            background-color: #00e1ff;
+            border-radius: 5px;
+            color: black;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        
+        .home-button:hover {
+            background-color: #3ffd6e;
+        }
+
+        /* Checkbox Styling */
+        input[type="checkbox"] {
+            margin-right: 10px;
+        }
+
+        /* Styling for the notification boxes */
+        .notification {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            border-radius: 5px;
+            color: white;
+            font-size: 14px;
+            opacity: 1;
+            transition: opacity 0.5s ease-out;
+            z-index: 1000;
+        }
+
+        .notification.success {
+            background-color: #4CAF50; /* Green */
+        }
+
+        .notification.error {
+            background-color: #f44336; /* Red */
+        }
+
+        /* Fading out effect */
+        .notification.hide {
+            opacity: 0;
+        }
+
+        /* .ETH: Used for buttons that perform Ethernet/NTP-related actions */
+        .ETH {
+            background-color: #a200ff; /* Purple for Ethernet/NTP actions */
+        }
+        /* .DAN: Used for buttons that perform dangerous or destructive actions */
+        .DAN {
+            background-color: #ff0000; /* Red for dangerous/destructive actions */
+        }
+        button:disabled {
+            all: unset !important; /* optional: resets inherited styles */
+            background-color: grey !important;
+            color: rgb(0, 0, 0) !important;
+            cursor: not-allowed !important;
+            opacity: 0.6 !important;
+            pointer-events: none !important; /* if needed */
+            padding: 8px 16px !important;
+            border: none !important;
+            border-radius: 4px !important;
+            margin-bottom: 10px !important; /* Adds spacing between buttons */
+        }
+    </style>
+    <script>
+        // Function to show notification
+        function showNotification(message, type) {
+            const notification = document.createElement('div');
+            notification.classList.add('notification', type);
+            notification.textContent = message;
+            document.body.appendChild(notification);
+
+            // Remove the notification after 3 seconds
+            setTimeout(() => {
+                notification.classList.add('hide');
+                setTimeout(() => {
+                    notification.remove();
+                }, 500); // Wait for fade-out animation before removing
+            }, 3000); // Duration the message will be visible
+        }
+
+        // General spinner function
+        function showSpinner(show, type = "", customText = "") {
+            let spinnerId = `spinner-${type}`;
+            let spinner = document.getElementById(spinnerId);
+            if (!spinner) {
+                spinner = document.createElement('div');
+                spinner.id = spinnerId;
+                spinner.style = "margin-top:20px; color:#00e1ff; text-align:center;";
+                let text = "";
+                if (customText) {
+                    text = `<span>${customText}</span>`;
+                } else {
+                    text = '<span>Processing... Please wait.</span>';
+                }
+                spinner.innerHTML = text;
+                const container = document.querySelector('.container');
+                if (container) {
+                    container.appendChild(spinner);
+                } else {
+                    console.error("Error: '.container' element not found.");
+                }
+            }
+            spinner.style.display = show ? 'block' : 'none';
+
+            // Disable or enable all buttons depending on spinner state
+            document.querySelectorAll('button').forEach(btn => {
+                btn.disabled = show;
+            });
+        }
+
+        // Hide all spinners
+        function hideAllSpinners() {
+            document.querySelectorAll('[id^="spinner-"]').forEach(spinner => {
+                spinner.style.display = 'none';
+            });
+            // Re-enable all buttons
+            document.querySelectorAll('button').forEach(btn => {
+                btn.disabled = false;
+            });
+        }
+
+        // Send a request to the root endpoint
+        async function sendRequest(command, code) {
+            try {
+                // Show appropriate spinner
+                if (command === 'TIMELAPSE') showSpinner(true, "timelapse", "Processing timelapse... Please wait.");
+                else if (command === 'ALLZIP') showSpinner(true, "zip", "Creating zip file... Please wait.");
+                else if (command === 'USB') showSpinner(true, "usb", "Copying files to USB... Please wait.");
+                else if (command === 'export-csv') showSpinner(true, "csv", "Exporting CSV... Please wait.");
+                // Example: showSpinner(true, "custom1", "Doing something custom...");
+
+                let currentHostname = window.location.hostname;
+                if (currentHostname === '') {
+                    currentHostname = 'localhost';
+                }
+                const response = await fetch(`http://${currentHostname}:8000/export`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: `command=${command}&code=${code}`
+                });
+
+                if (response.ok) {
+                    // Try to parse as JSON, fallback to text
+                    let contentType = response.headers.get("content-type");
+                    if (contentType && contentType.startsWith("application/json")) {
+                        const data = await response.json();
+                        if (typeof data === "string") {
+                            if (data.startsWith("http")) {
+                                window.location.href = data;
+                                return;
+                            } else if (data.startsWith("U:")) {
+                                // Remove "U:" and replace <hostname> with currentHostname
+                                let url = data.slice(2);
+                                window.location.href = url;
+                                return;
+                            }
+                        }
+                        showNotification('Request sent successfully!', 'success');
+                    } else {
+                        const text = await response.text();
+                        console.log("Raw response:", text);
+                        if (text.startsWith("http")) {
+                            window.location.href = text;
+                            return;
+                        } else if (text.startsWith("U:")) {
+                            // Remove "U:" and replace <hostname> with currentHostname
+                            let url = text.slice(2);
+                            window.location.href = url;
+                            return;
+                        } else if (text.startsWith("I:")) {
+                            // Remove "I:" and replace <hostname> with currentHostname
+                            let infoText = text.slice(2);
+                            hideAllSpinners();
+                            alert(infoText);
+                            return;
+                        }
+                        showNotification("Success:" + text, 'success');
+                    }
+                } else {
+                    const errorText = await response.text();
+                    showNotification('Error: ' + errorText, 'error');
+                }
+            } catch (error) {
+                showNotification(`Failed to send request: ${error.message}`, 'error');
+            } finally {
+                // Hide all spinners
+                hideAllSpinners();
+            }
+        }
+
+        function confirmAction(message) {
+            return confirm(message);
+        }
+    </script>
+</head>
+<body>
+    <a href="/" class="home-button">Home</a>
+    <div class="wrapper">
+        <div class="container">
+            <h1>Export Data</h1>
+            <button onclick="sendRequest('ALLZIP', '')">Zip all files, download.</button></br>
+            <button onclick="sendRequest('TIMELAPSE', '')">Download a timelapse of the images</button></br>
+            <button onclick="if (confirmAction('Please unplug the camera, plug in a USB drive, and press OK')) sendRequest('USB', '')">Copy all files to USB</button></br>
+            <button onclick="sendRequest('export-csv', '')">Download a CSV of all the data in active table</button></br>
+            <button><a target="_blank" rel="noopener noreferrer" href="/images/">View images folder</a></button></br>
+
+            <!-- <h2>Export to CSV</h2>
+            <button id="export-csv">Export CSV</button>
+            <h2>Export to JSON</h2>
+            <button id="export-json">Export JSON</button>
+            <hr>
+            <h2>Send Command</h2>
+            <button onclick="if (confirmAction('Are you sure you want to clear the log file?')) sendRequest('CLEARLOG', '')">Clear Log file</button>
+            <button><a href="/server.log">View logs</a></button>
+            <button onclick="sendRequest('UPDATETIME', '')" class="ETH">Update time from NTP server</button>
+            <button onclick="sendRequest('RESTARTSOFTWARE', '')">Restart logger software</button>
+            <button onclick="if (confirmAction('Are you sure you want to shut down the logger?')) sendRequest('SHUTDOWN', '')" class="confirm-action DAN">Shutdown logger</button>
+            <h3>DANGER ZONE BELOW</h3>
+            <button onclick="if (confirmAction('This will erase all settings and restore factory defaults. Continue?')) sendRequest('FACTORYRESET', '')" class="confirm-action DAN">FACTORY RESET LOGGER</button> -->
+        </div>
+        <div class="right-container">
+            <!-- <h2>Import Data</h2>
+            <input type="file" id="import-file" accept=".csv, .json">
+            <button id="import-data">Import Data</button>  -->
+            <img src="android-chrome-512x512.png" alt="Logger Icon" style="width: 100%; height: auto; border-radius: 8px;">
+        </div>
+    </div>
+    <!-- Notification Boxes -->
+    <div id="notification" class="notification"></div>
+</body>
+</html>
+<!-- WARNING: Quantum entanglement unstable. Reboot universe? (Y/n) -->

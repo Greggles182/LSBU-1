@@ -1,0 +1,51 @@
+/*@import url(http://fonts.googleapis.com/css?family=Montserrat); - no longer needed, have it locally in /fonts.font.css*/
+* {
+	font-family: Montserrat, sans-serif;
+  color: white;
+}
+body{
+	background: #232323;
+  font-size: 14px;
+}
+#troubleshootingBody{
+  position:absolute;
+  top: 60px; left: 20vw; 
+  width: 60vw; 
+  border:none;
+  text-align: left;
+  padding-top: 20px;
+}
+.command{
+  color: lime;
+}
+.tblContainer td{
+  padding-left: 20px;
+  padding-right: 20px;
+}
+.btnPage{
+	display: table-cell;
+	vertical-align: middle;
+	color: black;
+  font-size: 12px;
+	border-radius: 3px;
+	text-align: center;
+	box-shadow: 2px 2px 2px 0 rgba(0,0,0,0.3);
+	width: 120px;
+	height: 50px;
+	transition: background-position .2s ease;
+	background-repeat: repeat-x;
+	margin-left: 20px;
+	margin-right: 20px;
+}
+.btnPage:hover{
+	background-position: 0 10px;
+	cursor: pointer;
+}
+.btnFactoryReset{
+	background-color: #ee5f5b;
+	background-image: -webkit-linear-gradient(top, #ee5f5b, #973431);
+}
+.btnRestoreDB{
+	background-color: #00aeef;
+	background-image: -webkit-linear-gradient(top, #00aeef, #00587a);
+}

@@ -1,0 +1,12 @@
+"C:\Users\Gregory\AppData\Local\Arduino15\packages\esp8266\tools\python3\3.7.2-post1/python3" -I "C:\Users\Gregory\AppData\Local\Arduino15\packages\esp8266\hardware\esp8266\3.1.2/tools/upload.py" --chip esp8266 --port "COM26" --baud "115200" ""  --before default_reset --after hard_reset write_flash 0x0 "C:\Users\Gregory\Desktop\Code for RORY\Sensor_SHT\build\esp8266.esp8266.generic\Sensor_SHT.ino.bin"
+
+
+
+Search "Flasher" in windows
+
+Paste in command at top                                                                                            
+press Flash Devices.
+Program may need relaunching on unplug and replug of devices.
+Use a better serial monitor, and confirm working.
+
+SET {ID} 300 {SSID} 12345678

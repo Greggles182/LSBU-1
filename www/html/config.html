@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+    <link rel="manifest" href="/site.webmanifest">
+    <title>Logger Config</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            height: 100vh;
+            background-color: #333;
+            color: #ffffff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .wrapper {
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+            max-width: 1200px;
+        }
+        
+        .container {
+            width: 40%;
+            padding: 20px;
+            background-color: #444;
+            border-radius: 8px;
+        }
+        
+        .right-container {
+            width: 40%;
+            padding: 20px;
+            background-color: #555;
+            border-radius: 8px;
+        }
+        
+        h1, h2 {
+            text-align: center;
+        }
+        
+        button {
+            padding: 8px 16px;
+            background-color: #00e1ff;
+            border: none;
+            border-radius: 4px;
+            color: #000000;
+            cursor: pointer;
+            margin-bottom: 10px; /* Adds spacing between buttons */
+        }
+        
+        button:hover {
+            background-color: #3ffd6e;
+        }
+        
+        input[type="number"],
+        input[type="text"] {
+            padding: 6px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            width: 100%;
+        }
+        
+        .home-button {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            padding: 10px 20px;
+            background-color: #00e1ff;
+            border-radius: 5px;
+            color: black;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        
+        .home-button:hover {
+            background-color: #3ffd6e;
+        }
+
+        /* Checkbox Styling */
+        input[type="checkbox"] {
+            margin-right: 10px;
+        }
+
+        /* Styling for the notification boxes */
+        .notification {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            border-radius: 5px;
+            color: white;
+            font-size: 14px;
+            opacity: 1;
+            transition: opacity 0.5s ease-out;
+            z-index: 1000;
+        }
+
+        .notification.success {
+            background-color: #4CAF50; /* Green */
+        }
+
+        .notification.error {
+            background-color: #f44336; /* Red */
+        }
+
+        /* Fading out effect */
+        .notification.hide {
+            opacity: 0;
+        }
+
+        .ETH {
+            background-color: #a200ff; /* Red */
+        }
+        .DAN {
+            background-color: #ff0000; /* Red */
+        }
+
+        .table-list-container {
+            margin-top: 7px;
+            background: #333;
+            border-radius: 8px;
+            padding: 10px;
+        }
+        .table-list-title {
+            margin-bottom: 10px;
+            font-size: 1.2em;
+            color: #fff;
+            text-align: center;
+            cursor: pointer;
+            user-select: none;
+            transition: color 0.2s;
+        }
+        .table-list-title:hover {
+            color: #3ffd6e;
+        }
+        .table-list-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin: 0;
+            padding: 0;
+        }
+        .table-list-grid .table-item {
+            background: #444;
+            padding: 5px 12px;
+            border-radius: 2px;
+            color: #fff;
+            font-family: monospace;
+            font-size: 1em;
+            transition: background 0.2s;
+            margin: 0;
+            list-style: none;
+            text-align: center;
+        }
+        .table-list-grid.revealed {
+            display: grid;
+        }
+    </style>
+    <script>
+        // Function to show notification
+        function showNotification(message, type) {
+            const notification = document.createElement('div');
+            notification.classList.add('notification', type);
+            notification.textContent = message;
+            document.body.appendChild(notification);
+
+            // Remove the notification after 3 seconds
+            setTimeout(() => {
+                notification.classList.add('hide');
+                setTimeout(() => {
+                    notification.remove();
+                }, 500); // Wait for fade-out animation before removing
+            }, 3000); // Duration the message will be visible
+        }
+
+        // Fetch existing config data
+        async function loadConfigData() {
+            try {
+                let currentHostname = window.location.hostname;
+                if (currentHostname === '') {
+                    currentHostname = 'localhost';
+                }
+                console.log(currentHostname);
+                const response = await fetch(`http://${currentHostname}:8000/configs`);
+                if (response.ok) {
+                    showNotification('Loaded successfully!', 'success');
+                } else {
+                    showNotification(`Failed to load config data ${error.message}`, 'error');
+                    return;
+                }
+                const data = await response.json();
+                // Populate form with current config data
+                document.getElementById('logInterval').value = data.logInterval || '';
+                document.getElementById('dbTable').value = data.dbTable || '';
+                document.getElementById('SHT').checked = data.SHT || false;
+                // Set radio button for CamEnable
+                if (data.CamEnable === "door") {
+                    document.getElementById('camDoor').checked = true;
+                } else if (data.CamEnable === "doorcam") {
+                    document.getElementById('camDoorCam').checked = true;
+                } else {
+                    document.getElementById('camNone').checked = true;
+                }
+            } catch (error) {
+                showNotification(`Failed to load config data ${error.message}`, 'error');
+            }
+        }
+
+        // Handle form submission (send JSON to the server)
+        async function submitForm(event) {
+            event.preventDefault();
+
+            // Get selected camera mode
+            let camMode = document.querySelector('input[name="CamEnable"]:checked');
+            camMode = camMode ? camMode.value : "none";
+
+            const formData = {
+                logInterval: parseInt(document.getElementById('logInterval').value),
+                dbTable: document.getElementById('dbTable').value,
+                SHT: document.getElementById('SHT').checked,
+                CamEnable: camMode
+            };
+
+            try {
+                let currentHostname = window.location.hostname;
+                if (currentHostname === '') {
+                    currentHostname = 'localhost';
+                }
+                console.log(currentHostname);
+                const response = await fetch(`http://${currentHostname}:8000/configs`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(formData)
+                });
+
+                if (response.ok) {
+                    showNotification('Config data submitted successfully!', 'success');
+                } else {
+                    const errorText = await response.text();
+                    showNotification('Error: ' + errorText, 'error');
+                }
+            } catch (error) {
+                showNotification(`Failed to submit data ${error.message}`, 'error');
+            }
+        }
+
+        // Send a request to the root endpoint
+        async function sendRequest(command, code) {
+            try {
+                let currentHostname = window.location.hostname;
+                if (currentHostname === '') {
+                    currentHostname = 'localhost';
+                }
+                console.log(currentHostname);
+                const response = await fetch(`http://${currentHostname}:8000/` , {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: `command=${command}&code=${code}`
+                });
+
+                if (response.ok) {
+                    showNotification('Request sent successfully!', 'success');
+                } else {
+                    const errorText = await response.text();
+                    showNotification('Error: ' + errorText, 'error');
+                }
+            } catch (error) {
+                showNotification(`Failed to send request: ${error.message}`, 'error');
+            }
+        }
+
+        function confirmAction(message) {
+            return confirm(message);
+        }
+
+        async function loadSystemStats() {
+        try {
+            let currentHostname = window.location.hostname;
+            if (currentHostname === '') {
+                currentHostname = 'localhost';
+            }
+            console.log("Fetching from:", currentHostname);
+            // if (currentHostname === 'localhost') {
+            //     response = await fetch(`http://192.168.1.214:8000/status`); //Debug 23/3/2025
+            // }
+            // else {
+                // let response = await fetch(`http://${currentHostname}:8000/status`);
+            // }
+            let response = await fetch(`http://${currentHostname}:8000/status`);
+            if (!response.ok) {
+                throw new Error("Failed to fetch system stats.");
+            }
+
+            const data = await response.json();
+            
+            // Update UI
+            document.getElementById('cpuTemp').textContent = `${data.cpu_temperature_C.toFixed(1)} °C`;
+            document.getElementById('cpuUsage').textContent = `${data.cpu_usage_percent} %`;
+            document.getElementById('memFree').textContent = `${data.memory_info.free_memory_MB.toFixed(1)} MB`;
+            document.getElementById('memUsed').textContent = `${data.memory_info.used_memory_MB.toFixed(1)} MB`;
+            document.getElementById('memTotal').textContent = `${data.memory_info.total_memory_MB.toFixed(1)} MB`;
+
+            document.getElementById('batCharge').textContent = `${data.pijuice_stats.battery_charge_level} %`;
+            document.getElementById('batTemp').textContent = `${data.pijuice_stats.battery_temperature_C} °C`;
+            document.getElementById('batVolt').textContent = `${data.pijuice_stats.battery_voltage_mV} mV`;
+            // document.getElementById('batCurrent').textContent = `${data.pijuice_stats.current_draw_mA} mA`;
+
+            document.getElementById('total_GB').textContent = `${data.sd_info.total_GB} GB`;
+            document.getElementById('used_GB').textContent = `${data.sd_info.used_GB} GB`;
+            document.getElementById('used_percent').textContent = `${data.sd_info.used_percent} %`;
+            
+            
+
+        } catch (error) {
+            showNotification(`Stats refresh failed: ${error.message}`, 'error');
+            console.warn("System stats fetch error:", error);
+        }
+
+    }
+
+    // Auto-refresh stats every 5 seconds
+    setInterval(loadSystemStats, 5000);
+
+    // Load once when the page loads
+    window.onload = () => {
+        loadConfigData();
+        loadSystemStats();
+        loadTableList();
+    };
+
+    let tableNames = [];
+let activeTable = null;
+
+// Update loadTableList to store table names and set activeTable
+async function loadTableList() {
+    try {
+        let currentHostname = window.location.hostname || 'localhost';
+        const response = await fetch(`http://${currentHostname}:8000/tables`);
+        const data = await response.json();
+        const tableList = document.getElementById('tableList');
+        tableList.innerHTML = '';
+        tableNames = data.tables || [];
+        if (tableNames.length > 0) {
+            tableNames.sort();
+            tableNames.forEach(table => {
+                const div = document.createElement('div');
+                div.className = 'table-item';
+                div.textContent = table;
+                tableList.appendChild(div);
+            });
+            // Set activeTable if not set
+            if (!activeTable || !tableNames.includes(activeTable)) {
+                activeTable = tableNames[0];
+                document.getElementById('dbTable').value = activeTable;
+            }
+        } else {
+            tableList.innerHTML = '<div class="table-item">No tables found</div>';
+        }
+    } catch (error) {
+        document.getElementById('tableList').innerHTML = '<div class="table-item">Error loading tables</div>';
+    }
+}
+
+// Remove table and images logic
+document.addEventListener('DOMContentLoaded', function() {
+    const removeBtn = document.getElementById('removeTableBtn');
+    const dropdown = document.getElementById('removeTableDropdown');
+    removeBtn.addEventListener('click', function() {
+        // Toggle visibility
+        if (!dropdown.style.display || dropdown.style.display === 'none') {
+            dropdown.innerHTML = '';
+            // Add the placeholder option
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = '-Select a table-';
+            dropdown.appendChild(placeholder);
+
+            tableNames.forEach(table => {
+                const option = document.createElement('option');
+                option.value = table;
+                option.textContent = table;
+                dropdown.appendChild(option);
+            });
+            dropdown.style.display = 'inline-block';
+            dropdown.selectedIndex = 0;
+            dropdown.focus();
+        } else {
+            dropdown.style.display = 'none';
+        }
+    });
+
+    dropdown.addEventListener('change', async function() {
+        const selectedTable = dropdown.value;
+        // Do nothing if placeholder is selected
+        if (!selectedTable) return;
+        if (confirm(`Remove database table "${selectedTable}" and all related images? This cannot be undone.`)) {
+            let currentHostname = window.location.hostname || 'localhost';
+            const response = await fetch(`http://${currentHostname}:8000/remove-table-and-images`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ table: selectedTable })
+            });
+            if (response.ok) {
+                showNotification(`Table "${selectedTable}" and images removed.`, 'success');
+                // If active table was deleted, set to first table
+                if (document.getElementById('dbTable').value === selectedTable && tableNames.length > 0) {
+                    document.getElementById('dbTable').value = tableNames[0];
+                    activeTable = tableNames[0];
+                }
+                loadTableList();
+            } else {
+                showNotification('Failed to remove table/images.', 'error');
+            }
+            dropdown.style.display = 'none';
+        }
+    });
+
+    // Show/hide table list on title click
+    const tableTitle = document.querySelector('.table-list-title');
+    const tableList = document.getElementById('tableList');
+    tableTitle.addEventListener('click', function() {
+        if (tableList.style.display === 'none' || tableList.style.display === '') {
+            tableList.style.display = 'grid';
+        } else {
+            tableList.style.display = 'none';
+        }
+    });
+});
+    </script>
+</head>
+<body>
+    <a href="/" class="home-button">Home</a>
+    <div class="wrapper">
+        <div class="container">
+            <h1>Configuration Form</h1>
+            <form onsubmit="submitForm(event)">
+                <label for="logInterval">Log Interval (seconds):</label>
+                <input type="number" id="logInterval" name="logInterval" required>
+                <br><br>
+                <label for="dbTable">Database Table:</label>
+                <input type="text" id="dbTable" name="dbTable" required>
+                <br><br>
+                <label for="SHT">Read attached SHT (Plug in the SHT sensor before pressing submit):</label>
+                <input type="checkbox" id="SHT" name="SHT">
+                <br><br>
+                <label>Camera Mode:</label><br>
+                <input type="radio" id="camNone" name="CamEnable" value="none">
+                <label for="camNone">None</label>
+                <input type="radio" id="camDoor" name="CamEnable" value="door">
+                <label for="camDoor">Door Sensor Only</label>
+                <input type="radio" id="camDoorCam" name="CamEnable" value="doorcam">
+                <label for="camDoorCam">Door Sensor + camera</label>
+                <br><br>
+                <button type="submit">Submit</button>
+            </form>
+            <div class="table-list-container">
+                <div class="table-list-title">Database Tables</div>
+                <div id="tableList" class="table-list-grid" display="none">
+                    <div class="table-item">Loading...</div>
+                </div>
+            </div>
+            <hr>
+            <h2>Send Command</h2>
+            <!-- <button onclick="confirmAction(event, 'Are you sure you want to clear the log file?'); sendRequest('CLEARLOG', '')">Clear Log file</button> -->
+            <button onclick="if (confirmAction('Are you sure you want to clear the log file?')) sendRequest('CLEARLOG', '')">Clear Log file</button>
+            <button><a target="_blank" rel="noopener noreferrer" href="/server.log">View server logs</a></button>
+            <button><a target="_blank" rel="noopener noreferrer" href="/camera.log">View camera logs</a></button>
+            <button onclick="sendRequest('UPDATETIME', '')" class="ETH">Update time from NTP server</button>
+            <!-- <button onclick="confirmAction(event, 'Are you sure you want to shut down the logger?'); sendRequest('SHUTDOWN', '')" class="confirm-action">Shutdown logger</button> -->
+            <button onclick="sendRequest('RESTARTSOFTWARE', '')">Restart logger software</button>
+            <button onclick="if (confirmAction('Are you sure you want to shut down the logger?')) sendRequest('SHUTDOWN', '')" class="confirm-action DAN">Shutdown logger</button>
+            <h3>DANGER ZONE BELOW</h3>
+            <!-- <button onclick="confirmAction(event, 'This will erase all settings and restore factory defaults. Continue?'); sendRequest('FACTORYRESET', '')" class="confirm-action DAN">FACTORY RESET LOGGER</button> -->
+            <button onclick="if (confirmAction('This will erase all settings and restore factory defaults. Continue?')) sendRequest('FACTORYRESET', '')" class="confirm-action DAN">FACTORY RESET LOGGER</button>
+            <button id="removeTableBtn" class="DAN">Remove Table & Images</button>
+            <select id="removeTableDropdown" style="display:none; margin-top:10px;"></select>
+        </div>
+        <div class="right-container">
+            <h1>System Stats</h1>
+            <p><strong>CPU Temperature:</strong> <span id="cpuTemp">--</span></p>
+            <p><strong>CPU Usage:</strong> <span id="cpuUsage">--</span></p>
+            <h2>Memory</h2>
+            <p><strong>Free:</strong> <span id="memFree">--</span></p>
+            <p><strong>Used:</strong> <span id="memUsed">--</span></p>
+            <p><strong>Total:</strong> <span id="memTotal">--</span></p>
+            <h2>PiJuice Stats</h2>
+            <p><strong>Battery Charge:</strong> <span id="batCharge">--</span></p>
+            <p><strong>Battery Temp:</strong> <span id="batTemp">--</span></p>
+            <p><strong>Battery Voltage:</strong> <span id="batVolt">--</span></p>
+            <!-- <p><strong>Current Draw:</strong> <span id="batCurrent">--</span></p> -->
+            <h2>Disk usage</h2>
+            <p><strong>Total storage:</strong> <span id="total_GB">--</span></p>
+            <p><strong>Used storage:</strong> <span id="used_GB">--</span></p>
+            <p><strong>Percent used:</strong> <span id="used_percent">--</span></p>
+            <p>Refreshes every 5 seconds</p>
+        </div>
+        
+    </div>
+</body>
+</html>
+<!-- Connection to reality closed by remote host -->

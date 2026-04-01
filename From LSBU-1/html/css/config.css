@@ -1,0 +1,70 @@
+/*@import url(http://fonts.googleapis.com/css?family=Montserrat);*/
+* {
+	font-family: Montserrat, sans-serif;
+}
+body{
+	background: #232323;
+}
+#containerStopped, #containerRunning{
+	visibility: hidden; /* initially */
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+}.navContainer{
+  position: relative; 
+  left: 50%; 
+  transform: translateX(-50%);
+}
+.navContainer td{
+	text-align: center;
+	padding: 20px;
+	vertical-align: middle;
+}
+#status {
+	color: white;
+	font-size: 32px;
+}
+.nav {
+	display: table-cell;
+	vertical-align: middle;
+	color: black;
+	border-radius: 3px;
+	text-align: center;
+	box-shadow: 2px 2px 2px 0 rgba(0,0,0,0.3);
+	width: 150px;
+	height: 60px;
+	transition: background-position .2s ease;
+	background-repeat: repeat-x;
+	margin-left: 20px;
+	margin-right: 20px;
+}
+.nav:hover{
+	background-position: 0 10px;
+	cursor: pointer;
+}
+#btnPause{
+	background-color: #fcd116;
+    background-image: -webkit-linear-gradient(top, #fcd116, #705b00);
+}
+#btnStop{
+	background-color: #ee5f5b;
+    background-image: -webkit-linear-gradient(top, #ee5f5b, #973431);
+}
+#btnGet{
+	background-color: #00aeef;
+	background-image: -webkit-linear-gradient(top, #00aeef, #00587a);
+}
+#btnSet{
+	background-color: #00aeef;
+	background-image: -webkit-linear-gradient(top, #00aeef, #00587a);
+}
+#btnStart{
+	background-color: #68c800;
+  background-image: -webkit-linear-gradient(top, #68c800, #367100);
+}
+#dataTable{
+  position: relative; 
+  left: 50%; 
+  transform: translateX(-50%);
+}
