@@ -1,10 +1,13 @@
 #!/bin/bash
 set +x
-cd /usr/share/dwagent/
-echo "Follow user manual to configure the agent"
-sleep 5
-python3 configure.py
-echo "Agent configured"
+if cd /usr/share/dwagent/ 2>/dev/null; then
+    cd
+    sudo dwagent_uninstall
+fi
+# echo "Follow user manual to configure the agent"
+# sleep 5
+# python3 configure.py
+# echo "Agent configured"
 echo "Change LOG-* to required"
 sleep 5
 sudo nano /etc/hostapd/hostapd.conf
