@@ -221,18 +221,35 @@
             let camMode = document.querySelector('input[name="CamEnable"]:checked');
             camMode = camMode ? camMode.value : "none";
 
-            const formData = {
-                logInterval: parseInt(document.getElementById('logInterval').value),
-                dbTable: document.getElementById('dbTable').value,
-                SHT: document.getElementById('SHT').checked,
-                CamEnable: camMode
-            };
+            // Build formData with both sensor config and ThingsBoard config
+            // Get current config first to preserve ThingsBoard settings
+            let currentHostname = window.location.hostname;
+            if (currentHostname === '') {
+                currentHostname = 'localhost';
+            }
 
             try {
-                let currentHostname = window.location.hostname;
-                if (currentHostname === '') {
-                    currentHostname = 'localhost';
+                // Fetch current config to preserve ThingsBoard settings
+                const currentConfigResponse = await fetch(`http://${currentHostname}:8000/configs`);
+                if (!currentConfigResponse.ok) {
+                    throw new Error('Failed to fetch current config');
                 }
+                const currentConfig = await currentConfigResponse.json();
+
+                // Build form data with all required fields
+                const formData = {
+                    logInterval: parseInt(document.getElementById('logInterval').value),
+                    dbTable: document.getElementById('dbTable').value,
+                    SHT: document.getElementById('SHT').checked,
+                    CamEnable: camMode,
+                    // Preserve ThingsBoard settings from current config
+                    thingsboard_enabled: currentConfig.thingsboard_enabled || false,
+                    thingsboard_url: currentConfig.thingsboard_url || '',
+                    thingsboard_token: currentConfig.thingsboard_token || '',
+                    batch_size: currentConfig.batch_size || 100,
+                    check_interval: currentConfig.check_interval || 5
+                };
+
                 console.log(currentHostname);
                 const response = await fetch(`http://${currentHostname}:8000/configs`, {
                     method: 'POST',
@@ -472,6 +489,7 @@ document.addEventListener('DOMContentLoaded', function() {
             <button onclick="if (confirmAction('Are you sure you want to clear the log file?')) sendRequest('CLEARLOG', '')">Clear Log file</button>
             <button><a target="_blank" rel="noopener noreferrer" href="/server.log">View server logs</a></button>
             <button><a target="_blank" rel="noopener noreferrer" href="/camera.log">View camera logs</a></button>
+            <button onclick="window.location.href='http://' + window.location.hostname + '/thingsboard-config.html'">ThingsBoard Config</button>
             <button onclick="sendRequest('UPDATETIME', '')" class="ETH">Update time from NTP server</button>
             <!-- <button onclick="confirmAction(event, 'Are you sure you want to shut down the logger?'); sendRequest('SHUTDOWN', '')" class="confirm-action">Shutdown logger</button> -->
             <button onclick="sendRequest('RESTARTSOFTWARE', '')">Restart logger software</button>

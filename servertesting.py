@@ -2,8 +2,9 @@ from flask import *
 from flask_cors import CORS
 from waitress import serve
 from ntplib import NTPClient
-import os, time as time, json, copy, shutil, logging, platform, sqlite3, requests, threading, sys, subprocess, zipfile, re
+import os, time as time, json, copy, shutil, logging, platform, sqlite3, requests, threading, sys, subprocess, zipfile, re, struct, psutil, smbus # pyright: ignore[reportMissingModuleSource, reportMissingImports]
 from glob import glob
+from thingsboard_uploader import start_thingsboard_uploader
 
 # Define the NTP server
 NTP_SERVER = "pool.ntp.org"
@@ -218,7 +219,17 @@ def log_and_print(message, level="info"):
         logging.error(message)
 
 if not os.path.exists(config_path):
-    config_data = {"logInterval": 300, "dbTable": "data", "SHT": True, "CamEnable": "none"}
+    config_data = {
+        "logInterval": 300,
+        "dbTable": "data",
+        "SHT": True,
+        "CamEnable": "none",
+        "thingsboard_enabled": False,
+        "thingsboard_url": "",
+        "thingsboard_token": "",
+        "batch_size": 100,
+        "check_interval": 5
+    }
     with open(config_path, "w") as file:
         json.dump(config_data, file, indent=4)
         file.close()
@@ -227,6 +238,17 @@ else:
     with open(config_path, "r") as file:
         config_data = json.load(file)
         file.close()
+    # Add ThingsBoard fields if they don't exist (for backwards compatibility)
+    if "thingsboard_enabled" not in config_data:
+        config_data["thingsboard_enabled"] = False
+    if "thingsboard_url" not in config_data:
+        config_data["thingsboard_url"] = ""
+    if "thingsboard_token" not in config_data:
+        config_data["thingsboard_token"] = ""
+    if "batch_size" not in config_data:
+        config_data["batch_size"] = 100
+    if "check_interval" not in config_data:
+        config_data["check_interval"] = 5
 
 
 
@@ -582,7 +604,12 @@ def configs():
         "logInterval": int,
         "dbTable": str,
         "SHT": bool,
-        "CamEnable": str  # Now expects a string
+        "CamEnable": str,
+        "thingsboard_enabled": bool,
+        "thingsboard_url": str,
+        "thingsboard_token": str,
+        "batch_size": int,
+        "check_interval": int
     }
 
     valid_cam_modes = {"none", "door", "doorcam"}
@@ -620,6 +647,24 @@ def configs():
         if datar["CamEnable"] not in valid_cam_modes:
             log_and_print(f"Invalid CamEnable value: {datar['CamEnable']}", "error")
             return "Invalid CamEnable value. Must be 'none', 'door', or 'doorcam'.", 422
+
+        # Validate ThingsBoard settings
+        if datar["thingsboard_enabled"]:
+            if not datar["thingsboard_url"]:
+                log_and_print("ThingsBoard enabled but URL not provided", "error")
+                return "ThingsBoard URL required when enabled", 422
+            if not datar["thingsboard_token"]:
+                log_and_print("ThingsBoard enabled but token not provided", "error")
+                return "ThingsBoard token required when enabled", 422
+        
+        # Validate batch_size and check_interval
+        if datar["batch_size"] < 1:
+            log_and_print(f"batch_size must be positive: {datar['batch_size']}", "error")
+            return "batch_size must be at least 1", 422
+        
+        if datar["check_interval"] < 1:
+            log_and_print(f"check_interval must be positive: {datar['check_interval']}", "error")
+            return "check_interval must be at least 1", 422
 
         log_and_print(f"Received valid config data: {datar}")
         with open(config_path, "w") as file:
@@ -973,6 +1018,25 @@ if __name__ == "__main__":
                 threading.Thread(target=start_camera_thread).start()
             except ImportError as e:
                 log_and_print(f"Failed to start camera module: {e}", "error")
+        
+        # Start ThingsBoard uploader if enabled
+        if config_data.get("thingsboard_enabled", True):
+            thingsboard_config = {
+                "thingsboard_url": config_data.get("thingsboard_url", ""),
+                "thingsboard_token": config_data.get("thingsboard_token", ""),
+                "database_path": db_path,
+                "state_path": "/var/www/html/thingsboard_upload_state.json",
+                "batch_size": config_data.get("batch_size", 100),
+                "check_interval": config_data.get("check_interval", 5),
+                "http_timeout": 20
+            }
+            thingsboard_uploader = start_thingsboard_uploader(
+                thingsboard_config
+            )
+            if thingsboard_uploader:
+                log_and_print("ThingsBoard uploader started successfully")
+            else:
+                log_and_print("ThingsBoard uploader failed to start (misconfigured)", "error")
     while True:
         time.sleep(5)
 
