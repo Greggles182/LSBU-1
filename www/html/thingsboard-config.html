@@ -9,62 +9,84 @@
     <link rel="manifest" href="/site.webmanifest">
     <title>ThingsBoard Configuration</title>
     <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        html, body {
+            height: 100%;
+            overflow: hidden;
+        }
+
         body {
             font-family: Arial, sans-serif;
             margin: 0;
-            min-height: 100vh;
             background-color: #333;
             color: #ffffff;
             display: flex;
             justify-content: center;
             align-items: center;
-            padding: 20px 0;
-            overflow-y: auto;
         }
-        
+
         .container {
-            width: 60%;
-            padding: 20px;
+            width: 100%;
+            max-width: 900px;
+            max-height: 96vh;
+            padding: 28px 36px;
             background-color: #444;
             border-radius: 8px;
-            max-width: 900px;
-            margin: 20px auto;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
         }
-        
+
+        .scroll-area {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+
+        .scroll-area::-webkit-scrollbar {
+            display: none;
+        }
+
         h1, h2 {
             text-align: center;
         }
-        
+
         h1 {
             color: #00e1ff;
-            margin-top: 0;
+            margin: 0 0 20px 0;
+            font-size: 1.7em;
+            flex: 0 0 auto;
         }
-        
+
         .form-group {
-            margin-bottom: 20px;
+            margin-bottom: 18px;
         }
-        
+
         label {
             display: block;
-            margin-bottom: 8px;
+            margin-bottom: 6px;
             font-weight: bold;
             color: #ccc;
         }
-        
+
         input[type="text"],
         input[type="number"],
         input[type="password"],
         input[type="url"] {
             width: 100%;
-            padding: 10px;
+            padding: 9px 10px;
             border: 1px solid #666;
             border-radius: 4px;
-            box-sizing: border-box;
             font-size: 14px;
             background-color: #555;
             color: #fff;
         }
-        
+
         input[type="text"]:focus,
         input[type="number"]:focus,
         input[type="password"]:focus,
@@ -74,22 +96,21 @@
             box-shadow: 0 0 5px rgba(0, 225, 255, 0.5);
             background-color: #666;
         }
-        
+
         button {
-            padding: 8px 16px;
+            padding: 9px 18px;
             background-color: #00e1ff;
             border: none;
             border-radius: 4px;
             color: #000000;
             cursor: pointer;
-            margin-bottom: 10px;
             font-weight: bold;
         }
-        
+
         button:hover {
             background-color: #3ffd6e;
         }
-        
+
         .home-button {
             position: absolute;
             top: 20px;
@@ -100,140 +121,177 @@
             color: black;
             text-decoration: none;
             font-weight: bold;
-            display: inline-block;
         }
-        
-        .home-button:hover {
+
+        .back-button {
+            position: absolute;
+            top: 70px;
+            left: 20px;
+            padding: 10px 20px;
+            background-color: #00e1ff;
+            border-radius: 5px;
+            color: black;
+            text-decoration: none;
+            font-weight: bold;
+        }
+
+        .home-button:hover .back-button:hover {
             background-color: #3ffd6e;
         }
-        
+
         .checkbox-group {
             display: flex;
             align-items: center;
             gap: 10px;
         }
-        
+
         input[type="checkbox"] {
             width: 18px;
             height: 18px;
             cursor: pointer;
+            flex: 0 0 auto;
         }
-        
+
         .checkbox-label {
             margin-bottom: 0;
             font-weight: normal;
         }
-        
+
         .section {
-            margin-bottom: 30px;
+            margin-bottom: 20px;
             padding-bottom: 20px;
             border-bottom: 1px solid #666;
         }
-        
+
         .section:last-child {
             border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
         }
-        
+
         .section-title {
-            font-size: 18px;
+            font-size: 17px;
             font-weight: bold;
             color: #00e1ff;
-            margin-bottom: 15px;
-            margin-top: 0;
+            margin: 0 0 14px 0;
         }
-        
+
         .help-text {
             font-size: 12px;
             color: #aaa;
             margin-top: 5px;
+            margin-bottom: 0;
             font-style: italic;
         }
-        
+
         .button-group {
             display: flex;
-            gap: 10px;
-            margin-top: 30px;
+            gap: 12px;
+            margin-top: 18px;
             justify-content: center;
             flex-wrap: wrap;
+            flex: 0 0 auto;
         }
-        
+
         .btn-save {
             background-color: #28a745;
             color: white;
         }
-        
+
         .btn-save:hover {
             background-color: #218838;
         }
-        
+
         .btn-cancel {
             background-color: #6c757d;
             color: white;
         }
-        
+
         .btn-cancel:hover {
             background-color: #5a6268;
         }
-        
+
         .btn-test {
             background-color: #007bff;
             color: white;
-            flex: 0;
         }
-        
+
         .btn-test:hover {
             background-color: #0056b3;
         }
-        
+
         .status-message {
-            margin-top: 20px;
-            padding: 15px;
+            margin-top: 0;
+            padding: 12px 16px;
             border-radius: 4px;
             display: none;
+            font-size: 14px;
         }
-        
+
         .status-message.success {
             background-color: #4CAF50;
             color: #fff;
             border: 1px solid #45a049;
             display: block;
         }
-        
+
         .status-message.error {
             background-color: #f44336;
             color: #fff;
             border: 1px solid #da190b;
             display: block;
         }
-        
+
         .status-message.info {
             background-color: #2196F3;
             color: #fff;
             border: 1px solid #0b7dda;
             display: block;
         }
-        
+
         .two-column {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 20px;
         }
-        
+
         @media (max-width: 600px) {
             .two-column {
                 grid-template-columns: 1fr;
             }
-            
+
             .button-group {
                 flex-direction: column;
             }
+
+            .home-button {
+                position: static;
+                display: inline-block;
+                margin-bottom: 10px;
+            }
+
+            .back-button {
+                position: static;
+                display: inline-block;
+                margin-bottom: 10px;
+            }
+
+            body {
+                align-items: flex-start;
+                padding-top: 10px;
+            }
+
+            .container {
+                max-height: 96vh;
+                padding: 20px;
+            }
         }
-        
+
         .disabled-section {
             opacity: 0.5;
             pointer-events: none;
         }
-        
+
         .status-indicator {
             display: inline-block;
             width: 12px;
@@ -241,37 +299,48 @@
             border-radius: 50%;
             margin-right: 5px;
         }
-        
+
         .status-indicator.enabled {
             background-color: #28a745;
         }
-        
+
         .status-indicator.disabled {
             background-color: #6c757d;
         }
-        
-        #currentConfig {
-            background-color: #333;
-            padding: 10px;
-            border-radius: 4px;
-            margin-top: 10px;
-            border: 1px solid #666;
+
+        .notification {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            border-radius: 5px;
+            color: white;
+            font-size: 14px;
+            opacity: 1;
+            transition: opacity 0.5s ease-out;
+            z-index: 1000;
         }
-        
-        #configPreview {
-            margin: 0;
-            overflow-x: auto;
-            font-size: 12px;
-            color: #0f0;
+
+        .notification.success {
+            background-color: #4CAF50;
+        }
+
+        .notification.error {
+            background-color: #f44336;
+        }
+
+        .notification.hide {
+            opacity: 0;
         }
     </style>
 </head>
 <body>
     <a href="/" class="home-button">Home</a>
+    <a href="/config.html" class="back-button">Back</a>
     <div class="container">
-        <h1>⚙️ ThingsBoard Configuration</h1>
-        
-        <form id="thingsboardForm">
+        <h1>ThingsBoard Configuration</h1>
+
+        <form id="thingsboardForm" class="scroll-area">
             <!-- Enable/Disable Section -->
             <div class="section">
                 <div class="form-group checkbox-group">
@@ -285,115 +354,102 @@
                     Enable this to automatically upload your sensor data to ThingsBoard cloud platform.
                 </p>
             </div>
-            
+
             <!-- ThingsBoard Connection Settings -->
             <div class="section" id="connectionSection">
                 <h3 class="section-title">Connection Settings</h3>
-                
+
                 <div class="form-group">
                     <label for="thingsboardUrl">ThingsBoard Server URL</label>
-                    <input type="url" id="thingsboardUrl" name="thingsboard_url" 
+                    <input type="url" id="thingsboardUrl" name="thingsboard_url"
                            placeholder="https://data.echengineering.co.uk"
                            required>
                     <p class="help-text">
                         Example: https://data.echengineering.co.uk
                     </p>
                 </div>
-                
+
                 <div class="form-group">
                     <label for="thingsboardToken">Device Authentication Token</label>
-                    <input type="password" id="thingsboardToken" name="thingsboard_token" 
+                    <input type="password" id="thingsboardToken" name="thingsboard_token"
                            placeholder="Enter your ThingsBoard device token"
                            required>
                     <p class="help-text">
                         Your unique device token from ThingsBoard. Keep this secure!
                     </p>
                 </div>
-                
-                <div class="form-group">
+
+                <div class="form-group" style="margin-bottom: 0;">
                     <button type="button" class="btn-test" onclick="testConnection()">
                         Test Connection
                     </button>
                 </div>
             </div>
-            
+
             <!-- Upload Settings -->
             <div class="section" id="uploadSection">
                 <h3 class="section-title">Upload Settings</h3>
-                
+
                 <div class="two-column">
-                    <div class="form-group">
+                    <div class="form-group" style="margin-bottom: 0;">
                         <label for="batchSize">Batch Size</label>
-                        <input type="number" id="batchSize" name="batch_size" 
+                        <input type="number" id="batchSize" name="batch_size"
                                min="1" max="1000" value="100" required>
                         <p class="help-text">
-                            Number of rows to send per upload (1-1000)
+                            Rows per upload (1-1000)
                         </p>
                     </div>
-                    
-                    <div class="form-group">
-                        <label for="checkInterval">Check Interval (seconds)</label>
-                        <input type="number" id="checkInterval" name="check_interval" 
+
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="checkInterval">Check Interval (s)</label>
+                        <input type="number" id="checkInterval" name="check_interval"
                                min="1" max="3600" value="5" required>
                         <p class="help-text">
-                            How often to check for new data (1-3600 seconds)
+                            How often to check for new data (1-3600s)
                         </p>
                     </div>
                 </div>
             </div>
-            
+
             <!-- Status Section -->
             <div class="section">
                 <h3 class="section-title">Status</h3>
                 <div id="statusMessage" class="status-message"></div>
-                <div id="currentConfig" style="padding: 10px; border-radius: 4px; margin-top: 10px; display: none;">
-                    <p><strong>Current Configuration:</strong></p>
-                    <pre id="configPreview" style="margin: 0; overflow-x: auto; font-size: 12px;"></pre>
-                </div>
-            </div>
-            
-            <!-- Buttons -->
-            <div class="button-group">
-                <button type="button" class="btn-cancel" onclick="loadConfig()">Reload</button>
-                <button type="submit" class="btn-save">Save Configuration</button>
             </div>
         </form>
+
+        <!-- Buttons stay pinned outside the scrollable area -->
+        <div class="button-group">
+            <button type="button" class="btn-cancel" onclick="loadConfig()">Reload</button>
+            <button type="submit" form="thingsboardForm" class="btn-save">Save Configuration</button>
+        </div>
     </div>
-    
+
     <script>
         /**
          * ThingsBoard Configuration JavaScript
          * Handles loading, saving, and testing ThingsBoard configuration
          */
 
-        // Configuration API endpoint
-        const CONFIG_ENDPOINT = '/configs';
-
-        // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
             loadConfig();
-            
-            // Update UI state when checkbox changes
+
             document.getElementById('enableThingsboard').addEventListener('change', function() {
                 updateUIState();
             });
-            
-            // Handle form submission
+
             document.getElementById('thingsboardForm').addEventListener('submit', function(e) {
                 e.preventDefault();
                 saveConfig();
             });
         });
 
-        /**
-         * Load current configuration from server
-         */
         function loadConfig() {
             showStatus('Loading configuration...', 'info');
-            
+
             const flaskPort = ':8000';
             let currentHostname = window.location.hostname || 'localhost';
-            
+
             fetch(`http://${currentHostname}${flaskPort}/configs`, {
                 method: 'GET',
                 headers: {
@@ -407,16 +463,14 @@
                 return response.json();
             })
             .then(data => {
-                // Populate form fields
                 document.getElementById('enableThingsboard').checked = data.thingsboard_enabled || false;
                 document.getElementById('thingsboardUrl').value = data.thingsboard_url || '';
                 document.getElementById('thingsboardToken').value = data.thingsboard_token || '';
                 document.getElementById('batchSize').value = data.batch_size || 100;
                 document.getElementById('checkInterval').value = data.check_interval || 5;
-                
+
                 updateUIState();
                 showStatus('Configuration loaded successfully', 'success');
-                displayCurrentConfig(data);
             })
             .catch(error => {
                 showStatus(`Error loading configuration: ${error.message}`, 'error');
@@ -424,16 +478,12 @@
             });
         }
 
-        /**
-         * Save configuration to server
-         */
         function saveConfig() {
-            // Get current config first to preserve sensor settings
             const flaskPort = ':8000';
             let currentHostname = window.location.hostname || 'localhost';
-            
+
             showStatus('Loading current configuration...', 'info');
-            
+
             fetch(`http://${currentHostname}${flaskPort}/configs`, {
                 method: 'GET',
                 headers: {
@@ -447,7 +497,6 @@
                 return response.json();
             })
             .then(currentConfig => {
-                // Build config with preserved sensor settings + updated ThingsBoard settings
                 const config = {
                     logInterval: currentConfig.logInterval || 300,
                     dbTable: currentConfig.dbTable || 'data',
@@ -459,8 +508,7 @@
                     batch_size: parseInt(document.getElementById('batchSize').value),
                     check_interval: parseInt(document.getElementById('checkInterval').value)
                 };
-                
-                // Basic client-side validation
+
                 if (config.thingsboard_enabled) {
                     if (!config.thingsboard_url) {
                         showStatus('Please enter ThingsBoard Server URL', 'error');
@@ -475,20 +523,19 @@
                         return;
                     }
                 }
-                
+
                 if (config.batch_size < 1 || config.batch_size > 1000) {
                     showStatus('Batch size must be between 1 and 1000', 'error');
                     return;
                 }
-                
+
                 if (config.check_interval < 1 || config.check_interval > 3600) {
                     showStatus('Check interval must be between 1 and 3600 seconds', 'error');
                     return;
                 }
-                
+
                 showStatus('Saving configuration...', 'info');
-                
-                // Now save the complete config
+
                 fetch(`http://${currentHostname}${flaskPort}/configs`, {
                     method: 'POST',
                     headers: {
@@ -506,7 +553,7 @@
                 })
                 .then(data => {
                     showStatus('✓ Configuration saved successfully!', 'success');
-                    loadConfig(); // Reload to confirm
+                    loadConfig();
                 })
                 .catch(error => {
                     showStatus(`✗ Error saving configuration: ${error.message}`, 'error');
@@ -519,26 +566,22 @@
             });
         }
 
-        /**
-         * Test connection to ThingsBoard server
-         */
         function testConnection() {
             const url = document.getElementById('thingsboardUrl').value.trim();
             const token = document.getElementById('thingsboardToken').value.trim();
-            
+
             if (!url || !token) {
                 showStatus('Please enter both URL and token before testing', 'error');
                 return;
             }
-            
+
             if (!isValidUrl(url)) {
                 showStatus('Please enter a valid URL', 'error');
                 return;
             }
-            
+
             showStatus('Testing connection...', 'info');
-            
-            // Test by making a simple request to ThingsBoard
+
             const testUrl = `${url}/api/v1/${token}/telemetry`;
             const testPayload = [{
                 "ts": Date.now(),
@@ -546,14 +589,13 @@
                     "test": "connection_test"
                 }
             }];
-            
+
             fetch(testUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify(testPayload),
-                timeout: 10000
+                body: JSON.stringify(testPayload)
             })
             .then(response => {
                 if (response.ok) {
@@ -568,28 +610,12 @@
             });
         }
 
-        /**
-         * Display current configuration for debugging
-         */
-        function displayCurrentConfig(config) {
-            const sanitizedConfig = {
-                ...config,
-                thingsboard_token: config.thingsboard_token ? '***' + config.thingsboard_token.slice(-4) : ''
-            };
-            
-            document.getElementById('currentConfig').style.display = 'block';
-            document.getElementById('configPreview').textContent = JSON.stringify(sanitizedConfig, null, 2);
-        }
-
-        /**
-         * Update UI state based on enable/disable checkbox
-         */
         function updateUIState() {
             const enabled = document.getElementById('enableThingsboard').checked;
             const connectionSection = document.getElementById('connectionSection');
             const uploadSection = document.getElementById('uploadSection');
             const statusIndicator = document.getElementById('statusIndicator');
-            
+
             if (enabled) {
                 connectionSection.classList.remove('disabled-section');
                 uploadSection.classList.remove('disabled-section');
@@ -603,15 +629,11 @@
             }
         }
 
-        /**
-         * Show status message
-         */
         function showStatus(message, type) {
             const statusEl = document.getElementById('statusMessage');
             statusEl.textContent = message;
             statusEl.className = 'status-message ' + type;
-            
-            // Auto-hide success messages after 5 seconds
+
             if (type === 'success') {
                 setTimeout(() => {
                     statusEl.className = 'status-message';
@@ -619,9 +641,6 @@
             }
         }
 
-        /**
-         * Validate URL format
-         */
         function isValidUrl(string) {
             try {
                 new URL(string);

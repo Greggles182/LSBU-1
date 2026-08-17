@@ -327,7 +327,6 @@
             document.getElementById('batCharge').textContent = `${data.pijuice_stats.battery_charge_level} %`;
             document.getElementById('batTemp').textContent = `${data.pijuice_stats.battery_temperature_C} °C`;
             document.getElementById('batVolt').textContent = `${data.pijuice_stats.battery_voltage_mV} mV`;
-            // document.getElementById('batCurrent').textContent = `${data.pijuice_stats.current_draw_mA} mA`;
 
             document.getElementById('total_GB').textContent = `${data.sd_info.total_GB} GB`;
             document.getElementById('used_GB').textContent = `${data.sd_info.used_GB} GB`;
@@ -489,6 +488,7 @@ document.addEventListener('DOMContentLoaded', function() {
             <button onclick="if (confirmAction('Are you sure you want to clear the log file?')) sendRequest('CLEARLOG', '')">Clear Log file</button>
             <button><a target="_blank" rel="noopener noreferrer" href="/server.log">View server logs</a></button>
             <button><a target="_blank" rel="noopener noreferrer" href="/camera.log">View camera logs</a></button>
+            <button><a target="_blank" rel="noopener noreferrer" href="/tb.log">View ThingsBoardb sync logs</a></button>
             <button onclick="window.location.href='http://' + window.location.hostname + '/thingsboard-config.html'">ThingsBoard Config</button>
             <button onclick="sendRequest('UPDATETIME', '')" class="ETH">Update time from NTP server</button>
             <!-- <button onclick="confirmAction(event, 'Are you sure you want to shut down the logger?'); sendRequest('SHUTDOWN', '')" class="confirm-action">Shutdown logger</button> -->
