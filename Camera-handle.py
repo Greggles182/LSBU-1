@@ -1,4 +1,4 @@
-import os, logging, time, requests, json, subprocess
+import os, logging, time, requests, json, subprocess, shutil
 from gpiozero import Button # type: ignore
 
 # Load camera mode and dbTable from config
@@ -81,24 +81,27 @@ def print2():
 
         # Take initial photo when door opens (only if camera mode is doorcam)
         if CAMERA_MODE == "doorcam":
-            filename = f"{IMAGES_PATH}{time.strftime('%Y-%m-%d_%H-%M-%S')}_image_1_from_door_open.jpg"
-            log_and_print(f"Taking photo: {filename}")
-            rc, out, err = run_cmd(f"sudo fswebcam -r 1280x720 --no-banner {filename}")
-            if rc == 0:
-                if os.path.exists(filename):
-                    log_and_print(f"Photo saved: {filename}")
+            if get_sd_card_usage()["free_GB"] > 0.5:
+                filename = f"{IMAGES_PATH}{time.strftime('%Y-%m-%d_%H-%M-%S')}_image_1_from_door_open.jpg"
+                log_and_print(f"Taking photo: {filename}")
+                rc, out, err = run_cmd(f"sudo fswebcam -r 1280x720 --no-banner {filename}")
+                if rc == 0:
+                    if os.path.exists(filename):
+                        log_and_print(f"Photo saved: {filename}")
+                    else:
+                        log_and_print(f"Command succeeded but file not found: {filename}", "error")
+                        if out:
+                            logging.debug(f"fswebcam stdout: {out.strip()}")
+                        if err:
+                            logging.debug(f"fswebcam stderr: {err.strip()}")
                 else:
-                    log_and_print(f"Command succeeded but file not found: {filename}", "error")
+                    log_and_print(f"Failed to save photo: {filename} (rc={rc})", "error")
                     if out:
                         logging.debug(f"fswebcam stdout: {out.strip()}")
                     if err:
                         logging.debug(f"fswebcam stderr: {err.strip()}")
             else:
-                log_and_print(f"Failed to save photo: {filename} (rc={rc})", "error")
-                if out:
-                    logging.debug(f"fswebcam stdout: {out.strip()}")
-                if err:
-                    logging.debug(f"fswebcam stderr: {err.strip()}")
+                log_and_print("Insufficient SD card space to take photo", "error")
     else:
         log_and_print("Enable button not pressed, ignoring door open event", "warning")
 
@@ -106,11 +109,21 @@ def print2():
 button.when_pressed = print1   # Door shut
 button.when_released = print2  # Door open
 
+def get_sd_card_usage():
+    sd_path = "/"  # Root directory (adjust if necessary)
+    total, used, free = shutil.disk_usage(sd_path)
+    
+    return {
+        "total_GB": round(total / (1024 ** 3), 2),      
+        "used_GB": round(used / (1024 ** 3), 2),
+        "free_GB": round(free / (1024 ** 3), 2),
+        "used_percent": round((used / total) * 100, 2)
+    }
+
 i = 1
 b = 1
-
-try:
-    while True:
+while True:
+    try:
         if DoorOpen and enable.is_pressed:
             while i <= 10:
                 if not DoorOpen:
@@ -121,28 +134,31 @@ try:
                 if i == 10 and b <= 10:
                     # Take repeated photo every 10 seconds (only if camera mode is doorcam)
                     if CAMERA_MODE == "doorcam":
-                        filename = f"{IMAGES_PATH}{time.strftime('%Y-%m-%d_%H-%M-%S')}_image_{b}_from_door_open.jpg"
-                        log_and_print(f"Taking photo: {filename}")
-                        rc, out, err = run_cmd(f"sudo fswebcam -r 1280x720 --no-banner {filename}")
-                        if rc == 0:
-                            if os.path.exists(filename):
-                                log_and_print(f"Photo saved: {filename}")
+                        if get_sd_card_usage()["free_GB"] > 0.5:
+                            filename = f"{IMAGES_PATH}{time.strftime('%Y-%m-%d_%H-%M-%S')}_image_{b}_from_door_open.jpg"
+                            log_and_print(f"Taking photo: {filename}")
+                            rc, out, err = run_cmd(f"sudo fswebcam -r 1280x720 --no-banner {filename}")
+                            if rc == 0:
+                                if os.path.exists(filename):
+                                    log_and_print(f"Photo saved: {filename}")
+                                else:
+                                    log_and_print(f"Command succeeded but file not found: {filename}", "error")
+                                    if out:
+                                        logging.debug(f"fswebcam stdout: {out.strip()}")
+                                    if err:
+                                        logging.debug(f"fswebcam stderr: {err.strip()}")
                             else:
-                                log_and_print(f"Command succeeded but file not found: {filename}", "error")
+                                log_and_print(f"Failed to save photo: {filename} (rc={rc})", "error")
                                 if out:
                                     logging.debug(f"fswebcam stdout: {out.strip()}")
                                 if err:
                                     logging.debug(f"fswebcam stderr: {err.strip()}")
                         else:
-                            log_and_print(f"Failed to save photo: {filename} (rc={rc})", "error")
-                            if out:
-                                logging.debug(f"fswebcam stdout: {out.strip()}")
-                            if err:
-                                logging.debug(f"fswebcam stderr: {err.strip()}")
+                            log_and_print("Insufficient SD card space to take photo", "error")
                     i = 1
                     b += 1
         else:
             i = 1
-            b = 2
-except Exception as e:
-    log_and_print(f"Error in camera loop: {e}", "error")
+            b = 1 #Why was this 2 before?
+    except Exception as e:
+        log_and_print(f"Error in camera loop: {e}", "error")
