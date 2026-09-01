@@ -8,6 +8,14 @@ from thingsboard_uploader import start_thingsboard_uploader
 
 # Define the NTP server
 NTP_SERVER = "pool.ntp.org"
+DB_TABLE_PATTERN = r"[A-Za-z0-9_-]+"
+DB_TABLE_MAX_LENGTH = 50
+
+def sanitize_db_table(value):
+    if not isinstance(value, str):
+        return "data"
+    sanitized = "".join(re.findall(DB_TABLE_PATTERN, value))[:DB_TABLE_MAX_LENGTH]
+    return sanitized or "data"
 
 def get_images_path():
     return f'/var/www/html/images/{config_data["dbTable"]}/'
@@ -68,7 +76,7 @@ def get_sd_card_usage():
 
 if platform.system() == "Windows":
     OSCHECK = False
-    print("This does not work on Windows you fucking idiot.")
+    print("This does not work on Windows.")
     sys.exit(1)
 
 else:
@@ -238,6 +246,12 @@ else:
     with open(config_path, "r") as file:
         config_data = json.load(file)
         file.close()
+    original_db_table = config_data.get("dbTable")
+    config_data["dbTable"] = sanitize_db_table(original_db_table)
+    if config_data["dbTable"] != original_db_table:
+        log_and_print("Invalid dbTable in config; removed invalid characters or truncated its length.", "warning")
+        with open(config_path, "w") as file:
+            json.dump(config_data, file, indent=4)
     # Add ThingsBoard fields if they don't exist (for backwards compatibility)
     if "thingsboard_enabled" not in config_data:
         config_data["thingsboard_enabled"] = False
@@ -633,10 +647,10 @@ def configs():
                 log_and_print(f"Incorrect type for '{field}'. Expected {expected_type.__name__}, got {type(datar[field]).__name__}", "error")
                 return f"Incorrect type for '{field}'. Expected {expected_type.__name__}, got {type(datar[field]).__name__}", 422
 
-        # Check for special characters in dbTable (allow only alphanumeric and underscores)
-        if not re.match(r'^[A-Za-z0-9_]+$', datar["dbTable"]):
-            log_and_print(f"dbTable contains invalid characters: {datar['dbTable']}", "error")
-            return "dbTable contains invalid characters. Only letters, numbers, and underscores are allowed.", 422
+        original_db_table = datar["dbTable"]
+        datar["dbTable"] = sanitize_db_table(original_db_table)
+        if datar["dbTable"] != original_db_table:
+            log_and_print("Removed invalid characters from dbTable or truncated its length.", "warning")
 
         # Check for negative logInterval
         if datar["logInterval"] < 0:
@@ -941,7 +955,7 @@ def remove_table_and_images():
     log_and_print("Received request to remove table and images", "info")
     
     table = data.get('table')
-    if not table or not re.match(r'^[A-Za-z0-9_]+$', table):
+    if not table or not sanitize_db_table(table) == table:
         log_and_print(f"Invalid table name provided: {table}", "error")
         return "Invalid table name", 400
 
