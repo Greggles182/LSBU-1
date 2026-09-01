@@ -9,9 +9,6 @@ from thingsboard_uploader import start_thingsboard_uploader
 # Define the NTP server
 NTP_SERVER = "pool.ntp.org"
 
-# Allow only safe table-name characters to avoid command/path injection vectors.
-DBTABLE_SAFE_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
-
 def get_images_path():
     return f'/var/www/html/images/{config_data["dbTable"]}/'
 
@@ -668,10 +665,6 @@ def configs():
         if datar["check_interval"] < 1:
             log_and_print(f"check_interval must be positive: {datar['check_interval']}", "error")
             return "check_interval must be at least 1", 422
-
-        if not DBTABLE_SAFE_RE.fullmatch(datar["dbTable"]):
-            log_and_print(f"Invalid dbTable value: {datar['dbTable']}", "error")
-            return "dbTable contains invalid characters", 422
 
         log_and_print(f"Received valid config data: {datar}")
         with open(config_path, "w") as file:
