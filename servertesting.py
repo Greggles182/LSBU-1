@@ -476,7 +476,7 @@ def handle_export_request():
                         except Exception:
                             logging.exception(f"ALLZIP: failed to add {file} to zip")
                 log_and_print(f"Created zip file: {output_zip}", "info")
-                return f"U:/dl/export_{export_datetime}_{config_data['dbTable']}.zip"
+                return f"U:/dl/export_{export_datetime}_{escape(config_data['dbTable'])}.zip"
 
             elif command == "TIMELAPSE":
                 output_dir = "/var/www/html/dl"
