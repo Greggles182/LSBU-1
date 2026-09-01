@@ -500,7 +500,7 @@ def handle_export_request():
                     if res.stderr:
                         logging.info(f"ffmpeg stderr: {res.stderr.strip()}")
                     log_and_print("Timelapse created successfully", "info")
-                    return f"U:/dl/timelapse_{export_datetime}_{config_data['dbTable']}.mp4"
+                    return f"U:/dl/timelapse_{export_datetime}_{escape(config_data['dbTable'])}.mp4"
                 except subprocess.CalledProcessError as e:
                     log_and_print(f"Failed to create timelapse (non-zero exit): {e.returncode}", "error")
                     logging.info(f"ffmpeg stdout: {e.stdout}")
@@ -530,7 +530,7 @@ def handle_export_request():
                     return "I:Files copied to USB successfully, please remove USB drive", 200
                 else:
                     log_and_print(f"Failed to copy files to USB: {result}", "error")
-                    return f"Error copying files to USB: {result}", 500
+                    return f"Error copying files to USB: {escape(result)}", 500
 
             elif command == "export-csv":
                 Table = config_data["dbTable"]
@@ -576,7 +576,7 @@ def handle_export_request():
                                 writer.writerow(row)
 
                         log_and_print(f"Exported data to CSV: {csv_file_path} (rows: {len(rows)})", "info")
-                        return f"U:/dl/export_{export_datetime}_{config_data['dbTable']}.csv", 200
+                        return f"U:/dl/export_{export_datetime}_{escape(config_data['dbTable'])}.csv", 200
 
                 except sqlite3.Error as e:
                     log_and_print(f"Database error during export: {e}", "error")
