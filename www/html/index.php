@@ -113,6 +113,8 @@ try {
             <input type="datetime-local" id="end" name="end" value="<?php echo date('Y-m-d\TH:i', $end/1000); ?>">
             <button onclick="updateRange()">Update Range</button>
             <button onclick="resetRange()">Reset Range</button>
+            <label>Logger ID:</label>
+            <h5 id="loggerID"><?php echo htmlspecialchars($dataArray['logger_ID'] ?? 'N/A'); ?></h6>
         </div>
         <div class="actions">
             <button onclick="downloadCSV()">Download CSV of current data range</button>
