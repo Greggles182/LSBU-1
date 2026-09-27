@@ -380,12 +380,30 @@ config_data.setdefault("thingsboard_token", "")
 config_data.setdefault("logger_ID", "")
 
 identity = load_identity()
-config_data.update(legacy_identity)
+legacy_identity = {
+    key: config_data[key]
+    for key in IDENTITY_FIELDS
+    if key in config_data and config_data[key] not in (None, "", {})
+}
+
+moved_any = False
+for key in IDENTITY_FIELDS:
+    if key in config_data:
+        config_data.pop(key, None)
+        moved_any = True
+
+for key, value in legacy_identity.items():
+    if identity.get(key) != value:
+        identity[key] = value
+        moved_any = True
+
 config_data.update(identity)
-if legacy_identity:
-    log_and_print("Moved legacy identity settings out of data.json")
+if moved_any:
+    log_and_print("Moved identity settings out of data.json")
+
 if not os.path.exists(identity_path) or any(key not in identity for key in IDENTITY_FIELDS):
     save_identity()
+
 temporary_path = config_path + ".tmp"
 with open(temporary_path, "w") as file:
     json.dump(config_data, file, indent=4)
