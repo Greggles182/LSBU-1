@@ -14,6 +14,8 @@ import time
 import logging
 import traceback
 from threading import Thread
+from bounded_logging import SizeCappedFileHandler
+from network_utils import get_session, resolve_interface
 
 
 # ============================================================
@@ -27,9 +29,9 @@ logger.setLevel(logging.INFO)
 logger.propagate = False
 
 if not logger.handlers:
-    file_handler = logging.FileHandler(
+    file_handler = SizeCappedFileHandler(
         LOG_FILE,
-        encoding="utf-8"
+        encoding="utf-8",
     )
 
     formatter = logging.Formatter(
@@ -57,6 +59,8 @@ class ThingsboardUploader:
                 - batch_size: Rows per HTTP request (default 100)
                 - check_interval: Seconds between checks (default 5)
                 - http_timeout: HTTP request timeout (default 20)
+                - uplink_mode: "ppp0" | "eth0" | "auto" -- which interface to bind
+                  outgoing requests to (default "auto" = no binding, OS decides)
         """
 
         self.config = config
@@ -95,6 +99,16 @@ class ThingsboardUploader:
         self.http_timeout = config.get(
             "http_timeout",
             20
+        )
+
+        self.uplink_mode = config.get(
+            "uplink_mode",
+            "auto"
+        )
+
+        self.session = get_session(
+            resolve_interface(self.uplink_mode),
+            logger=logger,
         )
 
         self.heartbeat_interval = 60
@@ -350,7 +364,7 @@ class ThingsboardUploader:
 
         try:
 
-            response = requests.post(
+            response = self.session.post(
                 self.telemetry_url,
                 json=payload,
                 headers={
@@ -371,10 +385,12 @@ class ThingsboardUploader:
 
             return False
 
-        except requests.RequestException:
+        except requests.RequestException as e:
 
-            logger.exception(
-                "ThingsBoard telemetry connection failed"
+            logger.error(
+                "ThingsBoard telemetry connection failed (%s): %s",
+                type(e).__name__,
+                e,
             )
 
             return False
@@ -399,7 +415,7 @@ class ThingsboardUploader:
 
         try:
 
-            response = requests.post(
+            response = self.session.post(
                 self.attributes_url,
                 json=payload,
                 headers={
@@ -426,10 +442,12 @@ class ThingsboardUploader:
 
             return False
 
-        except requests.RequestException:
+        except requests.RequestException as e:
 
-            logger.exception(
-                "ThingsBoard attribute connection failed"
+            logger.error(
+                "ThingsBoard attribute connection failed (%s): %s",
+                type(e).__name__,
+                e,
             )
 
             return False
@@ -460,7 +478,7 @@ class ThingsboardUploader:
 
         try:
 
-            response = requests.post(
+            response = self.session.post(
                 self.attributes_url,
                 json=payload,
                 headers={
@@ -486,10 +504,12 @@ class ThingsboardUploader:
 
             return False
 
-        except requests.RequestException:
+        except requests.RequestException as e:
 
-            logger.exception(
-                "ThingsBoard last_updated connection failed"
+            logger.error(
+                "ThingsBoard last_updated connection failed (%s): %s",
+                type(e).__name__,
+                e,
             )
 
             return False

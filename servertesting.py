@@ -5,9 +5,37 @@ from ntplib import NTPClient
 import os, time as time, json, copy, shutil, logging, platform, sqlite3, requests, threading, sys, subprocess, zipfile, re, struct, psutil, smbus # pyright: ignore[reportMissingModuleSource, reportMissingImports]
 from glob import glob
 from thingsboard_uploader import start_thingsboard_uploader
+from bounded_logging import SizeCappedFileHandler
+from network_utils import get_session, resolve_interface, get_route_interface, interface_exists
+
+# Clipper only needs the APN for the PPP peer in almost all cases.
+# The user/password/auth fields are intentionally ignored here.
+DEFAULT_CARRIER_APNS = {
+    "giffgaff": {"apn": "giffgaff.com"},
+    "EE": {"apn": "everywhere"},
+    "Vodafone": {"apn": "internet"},
+    "O2": {"apn": "mobile.o2.co.uk"},
+    "Three": {"apn": "three.co.uk"},
+}
+IDENTITY_FIELDS = [
+    "thingsboard_url",
+    "thingsboard_token",
+    "cellular_enabled",
+    "active_carrier",
+    "custom_apn",
+    "logger_ID",
+]
 
 # Define the NTP server
 NTP_SERVER = "pool.ntp.org"
+DB_TABLE_PATTERN = r"[A-Za-z0-9_-]+"
+DB_TABLE_MAX_LENGTH = 50
+
+def sanitize_db_table(value):
+    if not isinstance(value, str):
+        return "data"
+    sanitized = "".join(re.findall(DB_TABLE_PATTERN, value))[:DB_TABLE_MAX_LENGTH]
+    return sanitized or "data"
 
 def get_images_path():
     return f'/var/www/html/images/{config_data["dbTable"]}/'
@@ -68,7 +96,7 @@ def get_sd_card_usage():
 
 if platform.system() == "Windows":
     OSCHECK = False
-    print("This does not work on Windows you fucking idiot.")
+    print("This does not work on Windows.")
     sys.exit(1)
 
 else:
@@ -77,6 +105,8 @@ else:
     db_path = "/var/www/html/example.db"
     log_path = "/var/www/html/server.log"
     config_path = "/var/www/html/data.json"
+    identity_path = "/var/www/html/device_identity.json"
+    carrier_apns_path = "/var/www/html/carrier_apns.json"
     #SHT3x - Sensirion Temperature Humidity sensor modules and setup.
     import smbus, psutil # type: ignore
     from pijuice import PiJuice # type: ignore
@@ -218,6 +248,79 @@ def log_and_print(message, level="info"):
     elif level == "error":
         logging.error(message)
 
+server_log_handler = SizeCappedFileHandler(log_path, encoding="utf-8")
+server_log_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+logging.getLogger().setLevel(logging.INFO)
+logging.getLogger().addHandler(server_log_handler)
+
+
+def load_identity():
+    if os.path.exists(identity_path):
+        with open(identity_path, "r") as file:
+            return json.load(file)
+    return {}
+
+
+def save_identity():
+    identity = {key: config_data[key] for key in IDENTITY_FIELDS if key in config_data}
+    temporary_path = identity_path + ".tmp"
+    with open(temporary_path, "w") as file:
+        json.dump(identity, file, indent=4)
+    os.replace(temporary_path, identity_path)
+
+
+def write_clipper_apn(apn):
+    """Update /etc/ppp/peers/clipper so the PPP peer uses the selected APN."""
+    if not apn:
+        log_and_print("No APN provided for Clipper peer; leaving PPP config unchanged.", "warning")
+        return False
+
+    peer_path = "/etc/ppp/peers/clipper"
+    try:
+        with open(peer_path, "r", encoding="utf-8") as file:
+            lines = file.readlines()
+    except FileNotFoundError:
+        log_and_print(f"PPP peer file not found at {peer_path}; cannot update APN.", "warning")
+        return False
+    except Exception as e:
+        log_and_print(f"Failed to read PPP peer file at {peer_path}: {e}", "error")
+        return False
+
+    updated = []
+    changed = False
+    target_prefix = 'connect "/usr/sbin/chat -v -f /etc/chatscripts/gprs -T '
+    apn_line = f'{target_prefix}{apn}"\n'
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith('connect "/usr/sbin/chat -v -f /etc/chatscripts/gprs -T '):
+            updated.append(apn_line)
+            changed = True
+        else:
+            updated.append(line)
+
+    if not changed:
+        updated.append(apn_line)
+
+    try:
+        with open(peer_path, "w", encoding="utf-8") as file:
+            file.writelines(updated)
+        log_and_print(f"Updated PPP peer APN in {peer_path} to '{apn}'", "info")
+        return True
+    except Exception as e:
+        log_and_print(f"Failed to write APN to {peer_path}: {e}", "error")
+        return False
+
+
+if not os.path.exists(carrier_apns_path):
+    with open(carrier_apns_path, "w") as file:
+        json.dump(DEFAULT_CARRIER_APNS, file, indent=4)
+    log_and_print(f"Created default carrier APN table at {carrier_apns_path}")
+
+with open(carrier_apns_path, "r") as file:
+    carrier_apns = json.load(file)
+
+legacy_identity = {}
 if not os.path.exists(config_path):
     config_data = {
         "logInterval": 300,
@@ -228,7 +331,12 @@ if not os.path.exists(config_path):
         "thingsboard_url": "",
         "thingsboard_token": "",
         "batch_size": 100,
-        "check_interval": 5
+        "check_interval": 300,
+        "uplink_mode": "auto",
+        "cellular_enabled": False,
+        "active_carrier": "",
+        "custom_apn": {"apn": ""},
+        "logger_ID": ""
     }
     with open(config_path, "w") as file:
         json.dump(config_data, file, indent=4)
@@ -238,7 +346,14 @@ else:
     with open(config_path, "r") as file:
         config_data = json.load(file)
         file.close()
-    # Add ThingsBoard fields if they don't exist (for backwards compatibility)
+    legacy_identity = {key: config_data[key] for key in IDENTITY_FIELDS if key in config_data}
+    original_db_table = config_data.get("dbTable")
+    config_data["dbTable"] = sanitize_db_table(original_db_table)
+    if config_data["dbTable"] != original_db_table:
+        log_and_print("Invalid dbTable in config; removed invalid characters or truncated its length.", "warning")
+        with open(config_path, "w") as file:
+            json.dump(config_data, file, indent=4)
+    # Add ThingsBoard and uplink fields if they don't exist (for backwards compatibility)
     if "thingsboard_enabled" not in config_data:
         config_data["thingsboard_enabled"] = False
     if "thingsboard_url" not in config_data:
@@ -249,10 +364,34 @@ else:
         config_data["batch_size"] = 100
     if "check_interval" not in config_data:
         config_data["check_interval"] = 5
+    if "uplink_mode" not in config_data:
+        config_data["uplink_mode"] = "auto"
+    if "cellular_enabled" not in config_data:
+        config_data["cellular_enabled"] = False
+    if "active_carrier" not in config_data:
+        config_data["active_carrier"] = ""
+    if "custom_apn" not in config_data:
+        config_data["custom_apn"] = {"apn": ""}
+    if "logger_ID" not in config_data:
+        config_data["logger_ID"] = ""
+
+config_data.setdefault("thingsboard_url", "")
+config_data.setdefault("thingsboard_token", "")
+config_data.setdefault("logger_ID", "")
+
+identity = load_identity()
+config_data.update(legacy_identity)
+config_data.update(identity)
+if legacy_identity:
+    log_and_print("Moved legacy identity settings out of data.json")
+if not os.path.exists(identity_path) or any(key not in identity for key in IDENTITY_FIELDS):
+    save_identity()
+temporary_path = config_path + ".tmp"
+with open(temporary_path, "w") as file:
+    json.dump(config_data, file, indent=4)
+os.replace(temporary_path, config_path)
 
 
-
-logging.basicConfig(filename=log_path, level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 app = Flask(__name__)
 CORS(app)
 
@@ -307,7 +446,54 @@ def insert_data(ID, data):
     finally:
         conn.close()
 
+def cycle_ppp_link():
+    """Restart the Clipper PPP link when the configured uplink is ppp0.
+
+    This is intentionally tolerant: the SIM may be absent, the modem may not be
+    attached, or the peer may not be available yet. In those cases we log a
+    warning and continue rather than crashing the app.
+    """
+    if config_data.get("uplink_mode") != "ppp0":
+        return True
+
+    steps = [
+        (["sudo", "poff", "clipper"], "Powering down Clipper PPP link"),
+        (["sudo", "pon", "clipper"], "Starting Clipper PPP link"),
+    ]
+
+    for command, message in steps:
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            if result.returncode == 0:
+                log_and_print(f"{message} succeeded.", "info")
+            else:
+                stderr = (result.stderr or result.stdout or "").strip()
+                log_and_print(
+                    f"{message} failed (rc={result.returncode}): {stderr or 'no output'}",
+                    "warning",
+                )
+        except FileNotFoundError:
+            log_and_print("PPP control utility not available; cannot toggle Clipper link.", "warning")
+            return False
+        except subprocess.TimeoutExpired:
+            log_and_print(f"{message} timed out; continuing without crashing.", "warning")
+            return False
+        except Exception as e:
+            log_and_print(f"Unexpected error while {message.lower()}: {e}", "warning")
+            return False
+
+    return True
+
+
 def restartSoftware():
+    if config_data.get("uplink_mode") == "ppp0":
+        cycle_ppp_link()
     subprocess.Popen(["sudo", "systemctl", "restart", "startup.service"])
 
 @app.route('/', methods=['POST', 'GET'])
@@ -609,7 +795,11 @@ def configs():
         "thingsboard_url": str,
         "thingsboard_token": str,
         "batch_size": int,
-        "check_interval": int
+        "check_interval": int,
+        "uplink_mode": str,
+        "cellular_enabled": bool,
+        "active_carrier": str,
+        "logger_ID": str
     }
 
     valid_cam_modes = {"none", "door", "doorcam"}
@@ -625,6 +815,9 @@ def configs():
             log_and_print(f"Invalid JSON format: {datar}", "error")
             return "Invalid JSON format", 400
 
+        datar.pop("cellular_apns", None)
+        datar.pop("carrier_apns", None)
+
         for field, expected_type in required_fields.items():
             if field not in datar:
                 log_and_print(f"Missing required field: {field}", "error")
@@ -633,10 +826,31 @@ def configs():
                 log_and_print(f"Incorrect type for '{field}'. Expected {expected_type.__name__}, got {type(datar[field]).__name__}", "error")
                 return f"Incorrect type for '{field}'. Expected {expected_type.__name__}, got {type(datar[field]).__name__}", 422
 
-        # Check for special characters in dbTable (allow only alphanumeric and underscores)
-        if not re.match(r'^[A-Za-z0-9_]+$', datar["dbTable"]):
-            log_and_print(f"dbTable contains invalid characters: {datar['dbTable']}", "error")
-            return "dbTable contains invalid characters. Only letters, numbers, and underscores are allowed.", 422
+        if datar["uplink_mode"] not in ("ppp0", "eth0", "auto"):
+            log_and_print(f"Invalid uplink_mode value: {datar['uplink_mode']}", "error")
+            return "Invalid uplink_mode. Must be 'ppp0', 'eth0', or 'auto'.", 422
+
+        if datar["cellular_enabled"]:
+            if not datar.get("active_carrier"):
+                log_and_print("Cellular enabled but no active_carrier set", "error")
+                return "active_carrier required when cellular is enabled", 422
+            if datar["active_carrier"] != "custom" and datar["active_carrier"] not in carrier_apns:
+                log_and_print(f"Unknown active_carrier: {datar['active_carrier']}", "error")
+                return "active_carrier must be a known carrier name or 'custom'", 422
+            if datar["active_carrier"] == "custom":
+                custom = datar.get("custom_apn")
+                if not isinstance(custom, dict):
+                    log_and_print("active_carrier is 'custom' but custom_apn missing/invalid", "error")
+                    return "custom_apn (object) required when active_carrier is 'custom'", 422
+                # Clipper only needs the APN string. Ignore username/password/auth settings.
+                if "apn" not in custom or not str(custom.get("apn", "")).strip():
+                    log_and_print("custom_apn missing required APN value", "error")
+                    return "custom_apn.apn is required when active_carrier is 'custom'", 422
+
+        original_db_table = datar["dbTable"]
+        datar["dbTable"] = sanitize_db_table(original_db_table)
+        if datar["dbTable"] != original_db_table:
+            log_and_print("Removed invalid characters from dbTable or truncated its length.", "warning")
 
         # Check for negative logInterval
         if datar["logInterval"] < 0:
@@ -667,11 +881,81 @@ def configs():
             return "check_interval must be at least 1", 422
 
         log_and_print(f"Received valid config data: {datar}")
-        with open(config_path, "w") as file:
+
+        apn_value = ""
+        if datar.get("active_carrier") == "custom":
+            apn_value = str((datar.get("custom_apn") or {}).get("apn", "")).strip()
+        elif datar.get("active_carrier") in carrier_apns:
+            apn_value = str(carrier_apns[datar["active_carrier"]].get("apn", "")).strip()
+
+        # Only the APN is used by the Clipper PPP peer config.
+        datar["custom_apn"] = {"apn": apn_value}
+
+        temporary_path = config_path + ".tmp"
+        with open(temporary_path, "w") as file:
             json.dump(datar, file, indent=4)
-            file.close()
+        os.replace(temporary_path, config_path)
         config_data = copy.deepcopy(datar)
+        save_identity()
+
+        write_clipper_apn(apn_value)
         return "Saved config data", 200
+
+
+@app.route('/getapn', methods=['GET'])
+def get_apn():
+    return jsonify(carrier_apns), 200
+
+
+@app.route('/test-connection', methods=['POST'])
+def test_connection():
+    """
+    Server-side ThingsBoard connectivity test. Runs from the Pi itself so the
+    result reflects the configured uplink path, not the browser's.
+    """
+    body = request.get_json(silent=True) or {}
+
+    url = body.get("thingsboard_url") or config_data.get("thingsboard_url", "")
+    token = body.get("thingsboard_token") or config_data.get("thingsboard_token", "")
+
+    if not url or not token:
+        log_and_print("Test connection requested without URL/token", "warning")
+        return jsonify({"success": False, "message": "URL and token are required"}), 400
+
+    iface = resolve_interface(config_data.get("uplink_mode", "auto"))
+    session = get_session(iface, logger=None)
+
+    test_url = f"{url.rstrip('/')}/api/v1/{token}/telemetry"
+    test_payload = [{"ts": int(time.time() * 1000), "values": {"test": "connection_test"}}]
+
+    try:
+        response = session.post(
+            test_url,
+            json=test_payload,
+            headers={"Content-Type": "application/json"},
+            timeout=15,
+        )
+        if response.ok:
+            log_and_print(f"Test connection succeeded via interface={iface or 'auto'}")
+            return jsonify({
+                "success": True,
+                "message": "Successfully connected to ThingsBoard",
+                "interface": iface or "auto",
+            }), 200
+
+        log_and_print(f"Test connection failed: HTTP {response.status_code}: {response.text}", "error")
+        return jsonify({
+            "success": False,
+            "message": f"HTTP {response.status_code}: {response.text}",
+            "interface": iface or "auto",
+        }), 200
+    except requests.RequestException as e:
+        log_and_print(f"Test connection failed ({type(e).__name__}): {e}", "error")
+        return jsonify({
+            "success": False,
+            "message": f"{type(e).__name__}: {e}",
+            "interface": iface or "auto",
+        }), 200
 
 
 @app.route("/status", methods=["GET"])
@@ -778,6 +1062,22 @@ def run_flask():
     log_and_print("Starting Flask server")
     serve(app, host="0.0.0.0", port=8000)
     log_and_print("Flask server started")
+
+
+def vacuum_journal():
+    while True:
+        try:
+            subprocess.run(
+                ["sudo", "journalctl", "--rotate", "--vacuum-size=100M"],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            log_and_print("System journal vacuumed to 100 MB")
+        except Exception as e:
+            log_and_print(f"Failed to vacuum system journal: {e}", "warning")
+        time.sleep(24 * 60 * 60)
 
 
 def collect_results():
@@ -899,23 +1199,60 @@ def configure_ip():
     else:
         log_and_print("IP address 192.168.5.1 is already configured.")
 
-#Test network
-try:
-    response = requests.get('https://www.google.com/')
-    log_and_print('Network is working.')
-    net = True
-except:
-    log_and_print('Network is down.')
-    net = False
+def check_network():
+    """
+    Check internet connectivity via the currently configured uplink_mode.
+    Returns True/False. Logs the interface actually used.
+    """
+    configured_mode = config_data.get("uplink_mode", "auto")
+    primary_iface = resolve_interface(configured_mode)
+    attempted = []
 
+    if primary_iface is not None:
+        candidates = [primary_iface, None]
+    else:
+        candidates = [None]
 
+    for iface in candidates:
+        if iface is None and primary_iface is not None:
+            log_and_print(
+                f"Network check failed on configured interface '{primary_iface}', retrying with auto routing.",
+                "warning",
+            )
+
+        attempted.append(iface)
+        session = get_session(iface, logger=None)
+        try:
+            response = session.get('https://www.google.com/', timeout=10)
+            response.raise_for_status()
+            log_and_print(
+                f"Network is working (uplink_mode={configured_mode}, "
+                f"bound interface={iface or 'auto/unbound'})."
+            )
+            return True
+        except Exception as e:
+            log_and_print(
+                f"Network check failed (uplink_mode={configured_mode}, "
+                f"bound interface={iface or 'auto/unbound'}): {e}",
+                "warning",
+            )
+
+    log_and_print(
+        f"Network is down (uplink_mode={configured_mode}, attempted interfaces={attempted}).",
+        "warning",
+    )
+    return False
+
+net = check_network()
+
+pin = 22 # CHANGED FROM 14!!!!! (14 was HW UART)
 def fan():
     import RPi.GPIO as IO          # type: ignore # Calling GPIO to allow use of the GPIO pins
 
     IO.setwarnings(False)          # Do not show any GPIO warnings
     IO.setmode (IO.BCM)            # BCM pin numbers - PIN8 as ‘GPIO14’
-    IO.setup(14,IO.OUT)            # Initialize GPIO14 as our fan output pin
-    fan = IO.PWM(14,100)           # Set GPIO14 as a PWM output, with 100Hz frequency (this should match your fans specified PWM frequency)
+    IO.setup(pin,IO.OUT)            # Initialize GPIO14 as our fan output pin
+    fan = IO.PWM(pin,100)           # Set GPIO14 as a PWM output, with 100Hz frequency (this should match your fans specified PWM frequency)
     fan.start(0)                   # Generate a PWM signal with a 0% duty cycle (fan off)
 
     def get_temp():                              # Function to read in the CPU temperature and return it as a float in degrees celcius
@@ -941,7 +1278,7 @@ def remove_table_and_images():
     log_and_print("Received request to remove table and images", "info")
     
     table = data.get('table')
-    if not table or not re.match(r'^[A-Za-z0-9_]+$', table):
+    if not table or not sanitize_db_table(table) == table:
         log_and_print(f"Invalid table name provided: {table}", "error")
         return "Invalid table name", 400
 
@@ -1003,9 +1340,12 @@ def remove_table_and_images():
     
 
 if __name__ == "__main__":
+    if OSCHECK and config_data.get("uplink_mode") == "ppp0":
+        cycle_ppp_link()
     if OSCHECK:
         configure_ip()
         time.sleep(10)
+        threading.Thread(target=vacuum_journal, daemon=True).start()
     threading.Thread(target=run_flask).start()
     if OSCHECK:
         threading.Thread(target=collect_results).start()
@@ -1020,7 +1360,7 @@ if __name__ == "__main__":
                 log_and_print(f"Failed to start camera module: {e}", "error")
         
         # Start ThingsBoard uploader if enabled
-        if config_data.get("thingsboard_enabled", True):
+        if (config_data.get("thingsboard_enabled", True) and net):
             thingsboard_config = {
                 "thingsboard_url": config_data.get("thingsboard_url", ""),
                 "thingsboard_token": config_data.get("thingsboard_token", ""),
@@ -1028,7 +1368,8 @@ if __name__ == "__main__":
                 "state_path": "/var/www/html/thingsboard_upload_state.json",
                 "batch_size": config_data.get("batch_size", 100),
                 "check_interval": config_data.get("check_interval", 5),
-                "http_timeout": 20
+                "http_timeout": 20,
+                "uplink_mode": config_data.get("uplink_mode", "auto"),
             }
             thingsboard_uploader = start_thingsboard_uploader(
                 thingsboard_config

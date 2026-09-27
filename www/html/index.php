@@ -1,4 +1,10 @@
 <?php
+// Safety margin for explicitly-requested large date ranges (the default
+// unbounded-range crash is fixed below by defaulting to the last 24 hours,
+// but a deliberately large explicit range could still use more than PHP's
+// default 128M limit as the table grows).
+ini_set('memory_limit', '512M');
+
 try {
     $jsonData = file_get_contents('/var/www/html/data.json');
 
@@ -21,18 +27,14 @@ try {
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
     // Determine date range.
-    // If GET parameters 'start' and 'end' are not provided, fetch the full range from the table.
+    // If GET parameters 'start' and 'end' are not provided, default to the last
+    // 24 hours rather than the entire table. Loading every row ever recorded
+    // into memory (via fetchAll + json_encode) exhausts PHP's memory limit as
+    // the table grows -- this bounds the default page load to something sane.
+    // An explicit range can still be requested via the start/end GET params.
     if (!isset($_GET['start']) || !isset($_GET['end'])) {
-        $rangeQuery = $pdo->query("SELECT MIN(TIMESTAMP) as min_ts, MAX(TIMESTAMP) as max_ts FROM $tableName");
-        $range = $rangeQuery->fetch(PDO::FETCH_ASSOC);
-        if ($range && $range['min_ts'] !== null && $range['max_ts'] !== null) {
-            $start = $range['min_ts']; // already in milliseconds
-            $end   = $range['max_ts'];
-        } else {
-            // Fallback: last 1 hour if no data
-            $end = time() * 1000; 
-            $start = $end - (3600 * 1000);
-        }
+        $end = time() * 1000;
+        $start = $end - (24 * 3600 * 1000);
     } else {
         // Convert the datetime-local string to Unix timestamp (seconds) then to milliseconds
         $start = strtotime($_GET['start']) * 1000;

@@ -208,6 +208,7 @@
                 } else {
                     document.getElementById('camNone').checked = true;
                 }
+
             } catch (error) {
                 showNotification(`Failed to load config data ${error.message}`, 'error');
             }
@@ -247,7 +248,12 @@
                     thingsboard_url: currentConfig.thingsboard_url || '',
                     thingsboard_token: currentConfig.thingsboard_token || '',
                     batch_size: currentConfig.batch_size || 100,
-                    check_interval: currentConfig.check_interval || 5
+                    check_interval: currentConfig.check_interval || 5,
+                    uplink_mode: currentConfig.uplink_mode || 'auto',
+                    cellular_enabled: currentConfig.cellular_enabled || false,
+                    active_carrier: currentConfig.active_carrier || '',
+                    custom_apn: currentConfig.custom_apn ? { apn: currentConfig.custom_apn.apn || '' } : { apn: '' },
+                    logger_ID: currentConfig.logger_ID || ''
                 };
 
                 console.log(currentHostname);
@@ -380,7 +386,6 @@ async function loadTableList() {
             tableList.innerHTML = '<div class="table-item">No tables found</div>';
         }
     } catch (error) {
-        document.getElementById('tableList').innerHTML = '<div class="table-item">Error loading tables</div>';
     }
 }
 
@@ -463,7 +468,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 <label for="dbTable">Database Table:</label>
                 <input type="text" id="dbTable" name="dbTable" required>
                 <br><br>
-                <label for="SHT">Read attached SHT (Plug in the SHT sensor before pressing submit):</label>
+                <label for="SHT">Read attached SHT (Plug in the SHT sensor before pressing save):</label>
                 <input type="checkbox" id="SHT" name="SHT">
                 <br><br>
                 <label>Camera Mode:</label><br>
@@ -474,7 +479,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 <input type="radio" id="camDoorCam" name="CamEnable" value="doorcam">
                 <label for="camDoorCam">Door Sensor + camera</label>
                 <br><br>
-                <button type="submit">Submit</button>
+                <button type="submit">Save</button>
             </form>
             <div class="table-list-container">
                 <div class="table-list-title">Database Tables</div>

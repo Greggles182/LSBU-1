@@ -1,5 +1,6 @@
 import os, logging, time, requests, json, subprocess, shutil
 from gpiozero import Button # type: ignore
+from bounded_logging import SizeCappedFileHandler
 
 # Load camera mode and dbTable from config
 CONFIG_PATH = "/var/www/html/data.json"
@@ -18,14 +19,18 @@ if not os.path.exists(IMAGES_PATH):
 
 # Initialize button on GPIO4 with debounce (100ms)
 button = Button(4, bounce_time=0.1)
-enable = Button(15, bounce_time=0.1)
+enable = Button(27, bounce_time=0.1) ###CHANGED FROM 15!!!!!!!!!
 
 DoorOpen = False
 DOT1 = 0
 DOT = 0
 
 log_path = "/var/www/html/camera.log"
-logging.basicConfig(filename=log_path, level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+camera_log_handler = SizeCappedFileHandler(log_path, encoding="utf-8")
+camera_log_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+camera_logger = logging.getLogger()
+camera_logger.setLevel(logging.DEBUG)
+camera_logger.addHandler(camera_log_handler)
 
 def log_and_print(message, level="info"):
     print(message)
@@ -66,7 +71,7 @@ def print1():
             url = "http://localhost:8000/Lidata"
             payload = {"data": DOT}
             response = requests.post(url, data=payload)
-            log_and_print(response.status_code, response.text)  
+            log_and_print(f"{response.status_code}: {response.text}") 
     else:
         log_and_print("Enable button not pressed, ignoring door shut event", "warning")
 

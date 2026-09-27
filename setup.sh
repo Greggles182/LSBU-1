@@ -31,6 +31,33 @@ wpa_key_mgmt=WPA-PSK
 rsn_pairwise=CCMP
 EOF
 
+sudo python3 - "$wifi_ssid" <<'PY'
+import json
+import os
+import sys
+
+logger_id = sys.argv[1]
+identity_path = "/var/www/html/device_identity.json"
+config_path = "/var/www/html/data.json"
+
+def set_logger_id(path, create):
+    if not create and not os.path.exists(path):
+        return
+    if os.path.exists(path):
+        with open(path, "r") as file:
+            values = json.load(file)
+    else:
+        values = {}
+    values["logger_ID"] = logger_id
+    temporary_path = path + ".tmp"
+    with open(temporary_path, "w") as file:
+        json.dump(values, file, indent=4)
+    os.replace(temporary_path, path)
+
+set_logger_id(identity_path, True)
+set_logger_id(config_path, False)
+PY
+
 echo "✓ hostapd.conf configured"
 echo ""
 
