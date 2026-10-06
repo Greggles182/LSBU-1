@@ -62,7 +62,7 @@ def get_ntp_time():
 def update_time():
     # Get the current time from NTP server
     ntp_time_str = get_ntp_time()  # e.g. "2025-04-05 16:28:37"
-    log_and_print(f"NTP Time: {ntp_time_str}")
+    logging.info(f"NTP Time: {ntp_time_str}")
 
     if net:
         # Update the system time
@@ -88,9 +88,9 @@ def update_time():
         # Set PiJuice RTC time
         result = pijuice.rtcAlarm.SetTime(rtc_time)
         if result['error'] != 'NO_ERROR':
-            log_and_print(f"Failed to set PiJuice RTC time: {result['error']}")
+            logging.info(f"Failed to set PiJuice RTC time: {result['error']}")
         else:
-            log_and_print("System time and PiJuice RTC time updated successfully.")
+            logging.info("System time and PiJuice RTC time updated successfully.")
 
 def get_sd_card_usage():
     sd_path = "/"  # Root directory (adjust if necessary)
@@ -148,7 +148,7 @@ def read_register(client, address):
         else:
             raise Exception(f"Error reading register {address}: {response}")
     except Exception as e:
-        log_and_print(f"Error reading register {address}: {e}")
+        logging.info(f"Error reading register {address}: {e}")
         return None
 # Function to get PiJuice stats (using correct methods)
 def get_pijuice_stats():
@@ -172,7 +172,7 @@ def get_pijuice_stats():
         return stats
 
     except Exception as e:
-        log_and_print(f"Error fetching PiJuice stats: {e}")
+        logging.info(f"Error fetching PiJuice stats: {e}")
         return None
 
 # Function to get Raspberry Pi CPU temperature
@@ -182,7 +182,7 @@ def get_cpu_temp():
         temp = float(open("/sys/class/thermal/thermal_zone0/temp").read()) / 1000
         return temp
     except Exception as e:
-        log_and_print(f"Error fetching CPU temperature: {e}")
+        logging.info(f"Error fetching CPU temperature: {e}")
         return None
 
 # Function to get system memory usage with accurate values (Old function was shit)
@@ -200,7 +200,7 @@ def get_memory_info():
         }
         return memory_stats
     except Exception as e:
-        log_and_print(f"Error fetching memory info: {e}")
+        logging.info(f"Error fetching memory info: {e}")
         return None
 
 # Function to get system CPU usage
@@ -209,7 +209,7 @@ def get_cpu_usage():
         cpu_usage = psutil.cpu_percent(interval=1)
         return {"cpu_usage_percent": cpu_usage}
     except Exception as e:
-        log_and_print(f"Error fetching CPU usage: {e}")
+        logging.info(f"Error fetching CPU usage: {e}")
         return None
 
 # Combine PiJuice and system stats into a single dictionary
@@ -230,13 +230,7 @@ def get_system_and_pijuice_stats():
 
     return system_stats
 
-def log_and_print(message, level="info"):
-    if level == "info":
-        logging.info(message)
-    elif level == "warning":
-        logging.warning(message)
-    elif level == "error":
-        logging.error(message)
+
 
 server_log_handler = SizeCappedFileHandler(log_path, encoding="utf-8")
 server_log_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
@@ -262,7 +256,7 @@ def save_identity():
 def write_clipper_apn(apn):
     """Update /etc/ppp/peers/clipper so the PPP peer uses the selected APN."""
     if not apn:
-        log_and_print("No APN provided for Clipper peer; leaving PPP config unchanged.", "warning")
+        logging.warning("No APN provided for Clipper peer; leaving PPP config unchanged.")
         return False
 
     peer_path = "/etc/ppp/peers/clipper"
@@ -270,10 +264,10 @@ def write_clipper_apn(apn):
         with open(peer_path, "r", encoding="utf-8") as file:
             lines = file.readlines()
     except FileNotFoundError:
-        log_and_print(f"PPP peer file not found at {peer_path}; cannot update APN.", "warning")
+        logging.warning(f"PPP peer file not found at {peer_path}; cannot update APN.")
         return False
     except Exception as e:
-        log_and_print(f"Failed to read PPP peer file at {peer_path}: {e}", "error")
+        logging.error(f"Failed to read PPP peer file at {peer_path}: {e}")
         return False
 
     updated = []
@@ -295,17 +289,17 @@ def write_clipper_apn(apn):
     try:
         with open(peer_path, "w", encoding="utf-8") as file:
             file.writelines(updated)
-        log_and_print(f"Updated PPP peer APN in {peer_path} to '{apn}'", "info")
+        logging.info(f"Updated PPP peer APN in {peer_path} to '{apn}'")
         return True
     except Exception as e:
-        log_and_print(f"Failed to write APN to {peer_path}: {e}", "error")
+        logging.error(f"Failed to write APN to {peer_path}: {e}")
         return False
 
 
 if not os.path.exists(carrier_apns_path):
     with open(carrier_apns_path, "w") as file:
         json.dump(DEFAULT_CARRIER_APNS, file, indent=4)
-    log_and_print(f"Created default carrier APN table at {carrier_apns_path}")
+    logging.info(f"Created default carrier APN table at {carrier_apns_path}")
 
 with open(carrier_apns_path, "r") as file:
     carrier_apns = json.load(file)
@@ -331,7 +325,7 @@ if not os.path.exists(config_path):
     with open(config_path, "w") as file:
         json.dump(config_data, file, indent=4)
         file.close()
-    log_and_print(f"Created new config file at {config_path} with default values.")
+    logging.info(f"Created new config file at {config_path} with default values.")
 else:
     with open(config_path, "r") as file:
         config_data = json.load(file)
@@ -340,7 +334,7 @@ else:
     original_db_table = config_data.get("dbTable")
     config_data["dbTable"] = sanitize_db_table(original_db_table)
     if config_data["dbTable"] != original_db_table:
-        log_and_print("Invalid dbTable in config; removed invalid characters or truncated its length.", "warning")
+        logging.warning("Invalid dbTable in config; removed invalid characters or truncated its length.")
         with open(config_path, "w") as file:
             json.dump(config_data, file, indent=4)
     # Add ThingsBoard and uplink fields if they don't exist (for backwards compatibility)
@@ -389,7 +383,7 @@ for key, value in legacy_identity.items():
 
 config_data.update(identity)
 if moved_any:
-    log_and_print("Moved identity settings out of data.json")
+    logging.info("Moved identity settings out of data.json")
 
 if not os.path.exists(identity_path) or any(key not in identity for key in IDENTITY_FIELDS):
     save_identity()
@@ -406,7 +400,7 @@ CORS(app)
 
 
 images_path = get_images_path()
-log_and_print(f"Loaded config data: {config_data}")
+logging.info(f"Loaded config data: {config_data}")
 
 
 
@@ -446,11 +440,11 @@ def insert_data(ID, data):
             sql = f"INSERT INTO {config_data['dbTable']} ({column_names}) VALUES ({placeholders})"
             cursor.execute(sql, values)
             conn.commit()
-            log_and_print(f"Inserted data: {values}")
+            logging.info(f"Inserted data: {values}")
     except sqlite3.Error as e:
-        log_and_print(f"Database error: {e}", "error")
+        logging.error(f"Database error: {e}")
     except Exception as e:
-        log_and_print(f"Exception in insert_data: {e}", "error")
+        logging.error(f"Exception in insert_data: {e}")
     finally:
         conn.close()
 
@@ -479,21 +473,18 @@ def cycle_ppp_link():
                 check=False,
             )
             if result.returncode == 0:
-                log_and_print(f"{message} succeeded.", "info")
+                logging.info(f"{message} succeeded.")
             else:
                 stderr = (result.stderr or result.stdout or "").strip()
-                log_and_print(
-                    f"{message} failed (rc={result.returncode}): {stderr or 'no output'}",
-                    "warning",
-                )
+                logging.warning(f"{message} failed (rc={result.returncode}): {stderr or 'no output'}")
         except FileNotFoundError:
-            log_and_print("PPP control utility not available; cannot toggle Clipper link.", "warning")
+            logging.warning("PPP control utility not available; cannot toggle Clipper link.")
             return False
         except subprocess.TimeoutExpired:
-            log_and_print(f"{message} timed out; continuing without crashing.", "warning")
+            logging.warning(f"{message} timed out; continuing without crashing.")
             return False
         except Exception as e:
-            log_and_print(f"Unexpected error while {message.lower()}: {e}", "warning")
+            logging.warning(f"Unexpected error while {message.lower()}: {e}")
             return False
 
     return True
@@ -510,7 +501,7 @@ def handle_request():
     if request.method == 'POST':
         command = request.form.get('command')
         code = request.form.get('code')
-        log_and_print(f"Received command: {command}, code: {code}")
+        logging.info(f"Received command: {command}, code: {code}")
         if command == "CLEARLOG":
             with open(log_path, "w") as file:
                 file.write("")
@@ -518,17 +509,17 @@ def handle_request():
             with open("/var/www/html/camera.log", "w") as file:
                 file.write("")
                 file.close()
-            log_and_print("Log cleared", "info")
+            logging.info("Log cleared")
             return "Log cleared", 200
         elif command == "UPDATETIME":
             try:
                 update_time()
                 return "Time updated", 200
             except Exception as e:
-                log_and_print(f"Error updating time: {e}", "error")
+                logging.error(f"Error updating time: {e}")
                 return f"Error updating time: {e}", "error", 500
         elif command == "SHUTDOWN":
-            log_and_print("Shutting down system", "warning")
+            logging.warning("Shutting down system")
             pijuice.power.SetPowerOff(120)
             subprocess.run(['sudo', 'shutdown', '-h', '0'])
             return "Shutting down system", 200
@@ -547,9 +538,9 @@ def handle_request():
             if not os.path.exists(images_path):
                 try:
                     os.makedirs(images_path)
-                    log_and_print(f"Created missing directory: {images_path}")
+                    logging.info(f"Created missing directory: {images_path}")
                 except Exception as e:
-                    log_and_print(f"Failed to create directory {images_path}: {e}")
+                    logging.info(f"Failed to create directory {images_path}: {e}")
             else:
                 # If folder exists, clean it out
                 for root, dirs, files in os.walk(images_path, topdown=False):
@@ -557,19 +548,19 @@ def handle_request():
                         try:
                             os.unlink(os.path.join(root, f))
                         except Exception as e:
-                            log_and_print(f"Error deleting file {f}: {e}")
+                            logging.info(f"Error deleting file {f}: {e}")
                     for d in dirs:
                         try:
                             shutil.rmtree(os.path.join(root, d))
                         except Exception as e:
-                            log_and_print(f"Error deleting directory {d}: {e}")
-            log_and_print("Performed factory reset", "info")
-            log_and_print("All data and common settings deleted", "warning")
+                            logging.info(f"Error deleting directory {d}: {e}")
+            logging.info("Performed factory reset")
+            logging.warning("All data and common settings deleted")
             pijuice.power.SetPowerOff(120)
             subprocess.run(['sudo', 'shutdown', '-h', '0'])
             return "Factory reset performed", 200
         elif command == "RESTARTSOFTWARE":
-            log_and_print("Restarting software", "warning")
+            logging.warning("Restarting software")
             restartSoftware()
             return "Restarting software", 200
         return "Invalid command", 400
@@ -593,7 +584,7 @@ def copy_files_to_usb(files_to_copy):
         return "No USB device detected"
 
     usb_path = usb_mounts[0]  # Use the first detected USB device
-    log_and_print(f"Using USB device at {usb_path} for export", "info")
+    logging.info(f"Using USB device at {usb_path} for export")
     export_datetime = time.strftime("_%Y-%m-%d_%H-%M-%S")
     export_folder = os.path.join(usb_path, f"export_{export_datetime}")
     if not os.path.exists(export_folder):
@@ -609,7 +600,7 @@ def copy_files_to_usb(files_to_copy):
                 if not os.path.exists(dest_dir):
                     os.makedirs(dest_dir)
                 shutil.copy(file_path, dest_path)
-                log_and_print(f"copied {file_path} to {dest_path}", "info")
+                logging.info(f"copied {file_path} to {dest_path}")
             except Exception as e:
                 return f"Failed to copy {file_path}: {e}"
         else:
@@ -634,7 +625,7 @@ def handle_export_request():
     if request.method == 'POST':
         command = request.form.get('command')
         code = request.form.get('code')
-        log_and_print(f"Received export command: {command}, code: {code}", "info")
+        logging.info(f"Received export command: {command}, code: {code}")
         images_path = get_images_path()
         export_datetime = time.strftime("_%Y-%m-%d_%H-%M-%S")
 
@@ -647,7 +638,7 @@ def handle_export_request():
                     "/var/www/html/camera.log"
                 ]
                 image_files = glob(f"{images_path}*")
-                log_and_print(f"ALLZIP: found {len(image_files)} image files for zipping", "info")
+                logging.info(f"ALLZIP: found {len(image_files)} image files for zipping")
                 files_to_zip.extend(image_files)
 
                 output_zip = f"/var/www/html/dl/export_{export_datetime}_{config_data['dbTable']}.zip"
@@ -656,15 +647,15 @@ def handle_export_request():
                 with zipfile.ZipFile(output_zip, 'w', zipfile.ZIP_DEFLATED) as zipf:
                     for file in files_to_zip:
                         if not os.path.exists(file):
-                            log_and_print(f"ALLZIP: skipping missing file: {file}", "warning")
+                            logging.warning(f"ALLZIP: skipping missing file: {file}")
                             continue
                         try:
                             arcname = os.path.relpath(file, start="/var/www/html")
-                            log_and_print(f"ALLZIP: adding {file} as {arcname}", "debug")
+                            logging.info(f"ALLZIP: adding {file} as {arcname}")
                             zipf.write(file, arcname)
                         except Exception:
                             logging.exception(f"ALLZIP: failed to add {file} to zip")
-                log_and_print(f"Created zip file: {output_zip}", "info")
+                logging.info(f"Created zip file: {output_zip}")
                 return f"U:/dl/export_{export_datetime}_{config_data['dbTable']}.zip"
 
             elif command == "TIMELAPSE":
@@ -681,17 +672,17 @@ def handle_export_request():
                     "-pix_fmt", "yuv420p",
                     f"/var/www/html/dl/timelapse_{export_datetime}_{config_data['dbTable']}.mp4"
                 ]
-                log_and_print(f"TIMELAPSE: running ffmpeg with command: {' '.join(ffmpeg_cmd)}", "info")
+                logging.info(f"TIMELAPSE: running ffmpeg with command: {' '.join(ffmpeg_cmd)}")
                 try:
                     res = subprocess.run(ffmpeg_cmd, check=True, capture_output=True, text=True, timeout=300)
                     if res.stdout:
                         logging.info(f"ffmpeg stdout: {res.stdout.strip()}")
                     if res.stderr:
                         logging.info(f"ffmpeg stderr: {res.stderr.strip()}")
-                    log_and_print("Timelapse created successfully", "info")
+                    logging.info("Timelapse created successfully")
                     return f"U:/dl/timelapse_{export_datetime}_{config_data['dbTable']}.mp4"
                 except subprocess.CalledProcessError as e:
-                    log_and_print(f"Failed to create timelapse (non-zero exit): {e.returncode}", "error")
+                    logging.error(f"Failed to create timelapse (non-zero exit): {e.returncode}")
                     logging.info(f"ffmpeg stdout: {e.stdout}")
                     logging.info(f"ffmpeg stderr: {e.stderr}")
                     return f"Error creating timelapse: ffmpeg failed (rc={e.returncode})", 500
@@ -708,17 +699,17 @@ def handle_export_request():
                 ]
                 image_files = glob(f"{images_path}**/*", recursive=True)
                 image_files = [f for f in image_files if os.path.isfile(f)]
-                log_and_print(f"USB: preparing to copy {len(image_files)} image files and {len(files_to_copie)} base files", "info")
+                logging.info(f"USB: preparing to copy {len(image_files)} image files and {len(files_to_copie)} base files")
                 files_to_copie.extend(image_files)
                 # Log first few files for debug
                 for idx, fpath in enumerate(files_to_copie[:20]):
-                    log_and_print(f"USB candidate [{idx}]: {fpath}", "info")
+                    logging.info(f"USB candidate [{idx}]: {fpath}")
                 result = copy_files_to_usb(files_to_copie)
                 if result == "SUCCESS":
-                    log_and_print("Files copied to USB successfully", "info")
+                    logging.info("Files copied to USB successfully")
                     return "I:Files copied to USB successfully, please remove USB drive", 200
                 else:
-                    log_and_print(f"Failed to copy files to USB: {result}", "error")
+                    logging.error(f"Failed to copy files to USB: {result}")
                     return f"Error copying files to USB: {result}", 500
 
             elif command == "export-csv":
@@ -729,7 +720,7 @@ def handle_export_request():
                         cursor.execute(f"SELECT * FROM {Table}")
                         rows = cursor.fetchall()
                         if not rows:
-                            log_and_print("export-csv: no rows found", "warning")
+                            logging.warning("export-csv: no rows found")
                             return "No data to export", 404
 
                         output_dir = "/var/www/html/dl"
@@ -741,7 +732,7 @@ def handle_export_request():
                         # Get column names
                         cursor.execute(f"PRAGMA table_info({Table})")
                         columns = [info[1] for info in cursor.fetchall()]
-                        log_and_print(f"export-csv: columns = {columns}", "debug")
+                        logging.info(f"export-csv: columns = {columns}")
                         ts_index = None
                         if "TIMESTAMP" in columns:
                             ts_index = columns.index("TIMESTAMP")
@@ -764,11 +755,11 @@ def handle_export_request():
                                         row[ts_index] = ""
                                 writer.writerow(row)
 
-                        log_and_print(f"Exported data to CSV: {csv_file_path} (rows: {len(rows)})", "info")
+                        logging.info(f"Exported data to CSV: {csv_file_path} (rows: {len(rows)})")
                         return f"U:/dl/export_{export_datetime}_{config_data['dbTable']}.csv", 200
 
                 except sqlite3.Error as e:
-                    log_and_print(f"Database error during export: {e}", "error")
+                    logging.error(f"Database error during export: {e}")
                     logging.exception("export-csv: sqlite error")
                     return f"Database error: {e}", 500
                 except Exception:
@@ -818,7 +809,7 @@ def configs():
 
         # Validate JSON data
         if not isinstance(datar, dict):
-            log_and_print(f"Invalid JSON format: {datar}", "error")
+            logging.error(f"Invalid JSON format: {datar}")
             return "Invalid JSON format", 400
 
         datar.pop("cellular_apns", None)
@@ -826,67 +817,67 @@ def configs():
 
         for field, expected_type in required_fields.items():
             if field not in datar:
-                log_and_print(f"Missing required field: {field}", "error")
+                logging.error(f"Missing required field: {field}")
                 return f"Missing required field: {field}", 422
             if not isinstance(datar[field], expected_type):
-                log_and_print(f"Incorrect type for '{field}'. Expected {expected_type.__name__}, got {type(datar[field]).__name__}", "error")
+                logging.error(f"Incorrect type for '{field}'. Expected {expected_type.__name__}, got {type(datar[field]).__name__}")
                 return f"Incorrect type for '{field}'. Expected {expected_type.__name__}, got {type(datar[field]).__name__}", 422
 
         if datar["uplink_mode"] not in ("ppp0", "eth0", "auto"):
-            log_and_print(f"Invalid uplink_mode value: {datar['uplink_mode']}", "error")
+            logging.error(f"Invalid uplink_mode value: {datar['uplink_mode']}")
             return "Invalid uplink_mode. Must be 'ppp0', 'eth0', or 'auto'.", 422
 
         if datar["cellular_enabled"]:
             if not datar.get("active_carrier"):
-                log_and_print("Cellular enabled but no active_carrier set", "error")
+                logging.error("Cellular enabled but no active_carrier set")
                 return "active_carrier required when cellular is enabled", 422
             if datar["active_carrier"] != "custom" and datar["active_carrier"] not in carrier_apns:
-                log_and_print(f"Unknown active_carrier: {datar['active_carrier']}", "error")
+                logging.error(f"Unknown active_carrier: {datar['active_carrier']}")
                 return "active_carrier must be a known carrier name or 'custom'", 422
             if datar["active_carrier"] == "custom":
                 custom = datar.get("custom_apn")
                 if not isinstance(custom, dict):
-                    log_and_print("active_carrier is 'custom' but custom_apn missing/invalid", "error")
+                    logging.error("active_carrier is 'custom' but custom_apn missing/invalid")
                     return "custom_apn (object) required when active_carrier is 'custom'", 422
                 # Clipper only needs the APN string. Ignore username/password/auth settings.
                 if "apn" not in custom or not str(custom.get("apn", "")).strip():
-                    log_and_print("custom_apn missing required APN value", "error")
+                    logging.error("custom_apn missing required APN value")
                     return "custom_apn.apn is required when active_carrier is 'custom'", 422
 
         original_db_table = datar["dbTable"]
         datar["dbTable"] = sanitize_db_table(original_db_table)
         if datar["dbTable"] != original_db_table:
-            log_and_print("Removed invalid characters from dbTable or truncated its length.", "warning")
+            logging.warning("Removed invalid characters from dbTable or truncated its length.")
 
         # Check for negative logInterval
         if datar["logInterval"] < 0:
-            log_and_print(f"logInterval is negative: {datar['logInterval']}", "error")
+            logging.error(f"logInterval is negative: {datar['logInterval']}")
             return "logInterval must be non-negative.", 422
 
         # Validate CamEnable value
         if datar["CamEnable"] not in valid_cam_modes:
-            log_and_print(f"Invalid CamEnable value: {datar['CamEnable']}", "error")
+            logging.error(f"Invalid CamEnable value: {datar['CamEnable']}")
             return "Invalid CamEnable value. Must be 'none', 'door', or 'doorcam'.", 422
 
         # Validate ThingsBoard settings
         if datar["thingsboard_enabled"]:
             if not datar["thingsboard_url"]:
-                log_and_print("ThingsBoard enabled but URL not provided", "error")
+                logging.error("ThingsBoard enabled but URL not provided")
                 return "ThingsBoard URL required when enabled", 422
             if not datar["thingsboard_token"]:
-                log_and_print("ThingsBoard enabled but token not provided", "error")
+                logging.error("ThingsBoard enabled but token not provided")
                 return "ThingsBoard token required when enabled", 422
         
         # Validate batch_size and check_interval
         if datar["batch_size"] < 1:
-            log_and_print(f"batch_size must be positive: {datar['batch_size']}", "error")
+            logging.error(f"batch_size must be positive: {datar['batch_size']}")
             return "batch_size must be at least 1", 422
         
         if datar["check_interval"] < 1:
-            log_and_print(f"check_interval must be positive: {datar['check_interval']}", "error")
+            logging.error(f"check_interval must be positive: {datar['check_interval']}")
             return "check_interval must be at least 1", 422
 
-        log_and_print(f"Received valid config data: {datar}")
+        logging.info(f"Received valid config data: {datar}")
 
         apn_value = ""
         if datar.get("active_carrier") == "custom":
@@ -925,7 +916,7 @@ def test_connection():
     token = body.get("thingsboard_token") or config_data.get("thingsboard_token", "")
 
     if not url or not token:
-        log_and_print("Test connection requested without URL/token", "warning")
+        logging.warning("Test connection requested without URL/token")
         return jsonify({"success": False, "message": "URL and token are required"}), 400
 
     iface = resolve_interface(config_data.get("uplink_mode", "auto"))
@@ -942,21 +933,21 @@ def test_connection():
             timeout=15,
         )
         if response.ok:
-            log_and_print(f"Test connection succeeded via interface={iface or 'auto'}")
+            logging.info(f"Test connection succeeded via interface={iface or 'auto'}")
             return jsonify({
                 "success": True,
                 "message": "Successfully connected to ThingsBoard",
                 "interface": iface or "auto",
             }), 200
 
-        log_and_print(f"Test connection failed: HTTP {response.status_code}: {response.text}", "error")
+        logging.error(f"Test connection failed: HTTP {response.status_code}: {response.text}")
         return jsonify({
             "success": False,
             "message": f"HTTP {response.status_code}: {response.text}",
             "interface": iface or "auto",
         }), 200
     except requests.RequestException as e:
-        log_and_print(f"Test connection failed ({type(e).__name__}): {e}", "error")
+        logging.error(f"Test connection failed ({type(e).__name__}): {e}")
         return jsonify({
             "success": False,
             "message": f"{type(e).__name__}: {e}",
@@ -971,14 +962,14 @@ def status():
 
 @app.route("/data", methods=["POST"])
 def data():
-    log_and_print("Data received")
+    logging.info("Data received")
     try:
         data = request.get_data().decode("utf-8")
         if data.startswith("data="):
             data = data[5:]
         data_list = data.split(",")
         data_list = [int(data_list[0])] + [float(i.strip()) for i in data_list[1:]]
-        log_and_print(f"Processed data: {data_list}")
+        logging.info(f"Processed data: {data_list}")
         if data_list[0] > 90:
             return "ID out of range", 416
         datas = {
@@ -988,32 +979,32 @@ def data():
         insert_data(data_list[0], datas)
         return "Received and Saved", 200
     except (ValueError, IndexError) as e:
-        log_and_print(f"Error processing data: {e}", "error")
+        logging.error(f"Error processing data: {e}")
         return "Invalid data format", 400
     except Exception as e:
-        log_and_print(f"Unexpected error: {e}", "error")
+        logging.error(f"Unexpected error: {e}")
         return "Server error", 500
 
 #Add ID option for this at some point (Just fucking don't. It will definetly break shit)
 @app.route("/Lidata", methods=["POST"])
 def Lidata():
-    log_and_print("Light data received")
+    logging.info("Light data received")
     try:
         data = request.get_data().decode("utf-8")
         if data.startswith("data="):
             data = data[5:]
         LiTime = int(data)
-        log_and_print(f"Processed time data: {LiTime}")
+        logging.info(f"Processed time data: {LiTime}")
         datas = {
             f"LI1": LiTime,
         }
         insert_data(99, datas)
         return "Received and Saved", 200
     except (ValueError, IndexError) as e:
-        log_and_print(f"Error processing data: {e}", "error")
+        logging.error(f"Error processing data: {e}")
         return "Invalid data format", 400
     except Exception as e:
-        log_and_print(f"Unexpected error: {e}", "error")
+        logging.error(f"Unexpected error: {e}")
         return "Server error", 500
     
 @app.route("/intdata", methods=["POST"])
@@ -1021,29 +1012,29 @@ def intdata():
     try:
         data = request.get_json()
         if data is None:
-            log_and_print("No JSON data received", "warning")
+            logging.warning("No JSON data received")
             return "No JSON data received", 400
         if config_data["SHT"]:
             required_fields = ["EN1", "EN2", "EN3", "EN4", "EN5", "T00", "H00"]
             if not all(field in data for field in required_fields):
-                log_and_print("Missing required data", "warning")
+                logging.warning("Missing required data")
                 return "Missing required data", 422
             datas = {field: float(data[field]) for field in required_fields}
         if not config_data["SHT"]:
             required_fields = ["EN1", "EN2", "EN3", "EN4", "EN5"]
             if not all(field in data for field in required_fields):
-                log_and_print("Missing required data", "warning")
+                logging.warning("Missing required data")
                 return "Missing required data", 422
             datas = {field: float(data[field]) for field in required_fields}
 
-        #log_and_print(f"Received JSON data: {datas}")
+        # logging.info(f"Received JSON data: {datas}")
         insert_data(0, datas)
         return "Success", 200
     except ValueError as e:
-        log_and_print(f"Invalid data type: {e}", "error")
+        logging.error(f"Invalid data type: {e}")
         return "Invalid data type", 400
     except Exception as e:
-        log_and_print(f"Unexpected error: {e}", "error")
+        logging.error(f"Unexpected error: {e}")
         return "Server error", 500
 
 @app.route('/tables', methods=['GET'])
@@ -1056,14 +1047,14 @@ def list_tables():
         conn.close()
         return jsonify({"tables": tables}), 200
     except Exception as e:
-        log_and_print(f"Error listing tables: {e}", "error")
+        logging.error(f"Error listing tables: {e}")
         return jsonify({"error": str(e)}), 500
 
 
 def run_flask():
-    log_and_print("Starting Flask server")
+    logging.info("Starting Flask server")
     serve(app, host="0.0.0.0", port=8000)
-    log_and_print("Flask server started")
+    logging.info("Flask server started")
 
 
 # def vacuum_journal(): ##No longer needed as logs to RAM now
@@ -1076,9 +1067,9 @@ def run_flask():
 #                 text=True,
 #                 timeout=60,
 #             )
-#             log_and_print("System journal vacuumed to 100 MB")
+#             logging.info("System journal vacuumed to 100 MB")
 #         except Exception as e:
-#             log_and_print(f"Failed to vacuum system journal: {e}", "warning")
+#             logging.warning(f"Failed to vacuum system journal: {e}")
 #         time.sleep(24 * 60 * 60)
 
 
@@ -1096,7 +1087,7 @@ def collect_results():
                 # Read out data
                 data = bus.read_i2c_block_data(SHT3x_ADDR, SHT3x_READ, 6)
             except Exception:
-                log_and_print(f"Failed to read SHT3x", "error")
+                logging.error(f"Failed to read SHT3x")
                 time.sleep(config_data["logInterval"])
                 continue
 
@@ -1109,9 +1100,9 @@ def collect_results():
                 Humidity = round(100.0 * float(h_data) / 65535.0, 2)
                 Temperature = round(-45.0 + 175.0 * float(t_data) / 65535.0, 2)
 
-                #log_and_print(f"Temp: {Temperature}C  H: {Humidity}%")
+                # logging.info(f"Temp: {Temperature}C  H: {Humidity}%")
             except Exception:
-                log_and_print(f"Failed to process sensor data", "error")
+                logging.error(f"Failed to process sensor data")
                 continue
 
         try:
@@ -1120,15 +1111,15 @@ def collect_results():
                 for address, name in REGISTER_MAP.items():
                     value = read_register(client, address)
                     if value is not None:
-                        #log_and_print(f"{name}: {value:.2f}")
+                        # logging.info(f"{name}: {value:.2f}")
                         values.append(value)
                     else:
-                        log_and_print(f"Failed to read {name}", "warning")
+                        logging.warning(f"Failed to read {name}")
                 client.close()
             else:
-                log_and_print("Failed to connect to SDM120M", "error")
+                logging.error("Failed to connect to SDM120M")
         except Exception:
-            log_and_print(f"Error reading SDM120M registers", "error")
+            logging.error(f"Error reading SDM120M registers")
             continue
 
         try:
@@ -1156,17 +1147,17 @@ def collect_results():
                         "EN5": values[4],
                     }
                 response = requests.post(url, json=data)
-                log_and_print("Server Response:", response.text)
+                logging.info("Server Response:")
             else:
-                log_and_print("Insufficient SDM120M values or sensor data to send to server", "warning")
+                logging.warning("Insufficient SDM120M values or sensor data to send to server")
         except Exception:
-            log_and_print(f"Failed to send data to server", "error")
+            logging.error(f"Failed to send data to server")
 
         log_interval = config_data.get("logInterval", 300)  # Default to 300 if missing
         if isinstance(log_interval, int) and log_interval > 0:
             time.sleep(log_interval)
         else:
-            log_and_print(f"Invalid logInterval value: {log_interval}. Using default value of 300.", "warning")
+            logging.warning(f"Invalid logInterval value: {log_interval}. Using default value of 300.")
             time.sleep(300)
 
         # Here are some common SDM120M registers:
@@ -1184,7 +1175,7 @@ def check_ip():
     # Run the command to get the IP address
     result = subprocess.run(['hostname', '-I'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     ip_address = result.stdout.decode().strip()  # Get the output as a string
-    log_and_print(f"Current IP address: {ip_address}")
+    logging.info(f"Current IP address: {ip_address}")
 
     return ip_address
 
@@ -1197,9 +1188,9 @@ def configure_ip():
         # Add the IP address and restart hostapd service
         subprocess.run(['sudo', 'ip', 'addr', 'add', '192.168.5.1/24', 'dev', 'wlan0'])
         subprocess.run(['sudo', 'systemctl', 'restart', 'hostapd.service'])
-        log_and_print("IP address added and hostapd service restarted.")
+        logging.info("IP address added and hostapd service restarted.")
     else:
-        log_and_print("IP address 192.168.5.1 is already configured.")
+        logging.info("IP address 192.168.5.1 is already configured.")
 
 def check_network():
     """
@@ -1217,32 +1208,21 @@ def check_network():
 
     for iface in candidates:
         if iface is None and primary_iface is not None:
-            log_and_print(
-                f"Network check failed on configured interface '{primary_iface}', retrying with auto routing.",
-                "warning",
-            )
+            logging.warning(f"Network check failed on configured interface '{primary_iface}', retrying with auto routing.")
 
         attempted.append(iface)
         session = get_session(iface, logger=None)
         try:
             response = session.get('https://www.google.com/', timeout=10)
             response.raise_for_status()
-            log_and_print(
-                f"Network is working (uplink_mode={configured_mode}, "
-                f"bound interface={iface or 'auto/unbound'})."
-            )
+            logging.info(f"Network is working (uplink_mode={configured_mode}, "
+                f"bound interface={iface or 'auto/unbound'}).")
             return True
         except Exception as e:
-            log_and_print(
-                f"Network check failed (uplink_mode={configured_mode}, "
-                f"bound interface={iface or 'auto/unbound'}): {e}",
-                "warning",
-            )
+            logging.warning(f"Network check failed (uplink_mode={configured_mode}, "
+                f"bound interface={iface or 'auto/unbound'}): {e}")
 
-    log_and_print(
-        f"Network is down (uplink_mode={configured_mode}, attempted interfaces={attempted}).",
-        "warning",
-    )
+    logging.warning(f"Network is down (uplink_mode={configured_mode}, attempted interfaces={attempted}).")
     return False
 
 net = check_network()
@@ -1267,7 +1247,7 @@ def fan():
 
     while True:                                     # Execute loop forever
         temp = get_temp()                        # Get the current CPU temperature
-        #log_and_print(temp)
+        # logging.info(temp)
         if temp > 60:                            # Check temperature threshhold, in degrees celcius
             fan.ChangeDutyCycle(100)             # Set fan duty based on temperature, 100 is max speed and 0 is min speed or off.
         if temp < 55:                            # If temperature is below threshold
@@ -1277,67 +1257,67 @@ def fan():
 @app.route('/remove-table-and-images', methods=['POST'])
 def remove_table_and_images():
     data = request.get_json()
-    log_and_print("Received request to remove table and images", "info")
+    logging.info("Received request to remove table and images")
     
     table = data.get('table')
     if not table or not sanitize_db_table(table) == table:
-        log_and_print(f"Invalid table name provided: {table}", "error")
+        logging.error(f"Invalid table name provided: {table}")
         return "Invalid table name", 400
 
-    log_and_print(f"Removing table and images for: {table}", "info")
+    logging.info(f"Removing table and images for: {table}")
     
     # Check if the table is the active one and update config if necessary
     if table == config_data["dbTable"]:
-        log_and_print(f"Table '{table}' is the active table. Updating config to use default table.", "warning")
+        logging.warning(f"Table '{table}' is the active table. Updating config to use default table.")
         config_data_mod = copy.deepcopy(config_data)
         config_data_mod["dbTable"] = "data"
         try:
             response = requests.post("http://127.0.0.1:8000/configs", json=config_data_mod)
             if response.status_code == 200:
-                log_and_print("Successfully updated config to use default table.", "info")
+                logging.info("Successfully updated config to use default table.")
             else:
-                log_and_print(f"Failed to update config. Response: {response.status_code}, {response.text}", "error")
+                logging.error(f"Failed to update config. Response: {response.status_code}, {response.text}")
         except Exception as e:
-            log_and_print(f"Error updating config: {e}", "error")
+            logging.error(f"Error updating config: {e}")
 
     # Remove images
     images_path = f'/var/www/html/images/{table}/'
     if os.path.exists(images_path):
-        log_and_print(f"Removing images at path: {images_path}", "info")
+        logging.info(f"Removing images at path: {images_path}")
         for root, dirs, files in os.walk(images_path, topdown=False):
             for f in files:
                 try:
                     os.unlink(os.path.join(root, f))
-                    log_and_print(f"Deleted file: {os.path.join(root, f)}", "info")
+                    logging.info(f"Deleted file: {os.path.join(root, f)}")
                 except Exception as e:
-                    log_and_print(f"Error deleting file {os.path.join(root, f)}: {e}", "error")
+                    logging.error(f"Error deleting file {os.path.join(root, f)}: {e}")
             for d in dirs:
                 try:
                     shutil.rmtree(os.path.join(root, d))
-                    log_and_print(f"Deleted directory: {os.path.join(root, d)}", "info")
+                    logging.info(f"Deleted directory: {os.path.join(root, d)}")
                 except Exception as e:
-                    log_and_print(f"Error deleting directory {os.path.join(root, d)}: {e}", "error")
+                    logging.error(f"Error deleting directory {os.path.join(root, d)}: {e}")
         try:
             os.rmdir(images_path)
-            log_and_print(f"Deleted images folder: {images_path}", "info")
+            logging.info(f"Deleted images folder: {images_path}")
         except Exception as e:
-            log_and_print(f"Error deleting images folder {images_path}: {e}", "error")
+            logging.error(f"Error deleting images folder {images_path}: {e}")
     else:
-        log_and_print(f"Images path does not exist: {images_path}", "warning")
+        logging.warning(f"Images path does not exist: {images_path}")
 
     # Remove table from database
     try:
-        log_and_print(f"Attempting to remove table '{table}' from database.", "info")
+        logging.info(f"Attempting to remove table '{table}' from database.")
         db_path = "/var/www/html/example.db"
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         cursor.execute(f'DROP TABLE IF EXISTS "{table}"')
         conn.commit()
         conn.close()
-        log_and_print(f"Successfully removed table '{table}' from database.", "info")
+        logging.info(f"Successfully removed table '{table}' from database.")
         return "Table and images removed", 200
     except Exception as e:
-        log_and_print(f"Error removing table '{table}' from database: {e}", "error")
+        logging.error(f"Error removing table '{table}' from database: {e}")
         return f"Error removing table/images: {e}", 500
     
 
@@ -1353,11 +1333,11 @@ if __name__ == "__main__":
     if config_data["CamEnable"] in ("door", "doorcam"):
         def start_camera_thread():
             subprocess.run(["sudo", "python3", "/home/pi/Camera-handle.py"])
-        log_and_print("Camera/door sensor enabled, starting camera thread")
+        logging.info("Camera/door sensor enabled, starting camera thread")
         try:
             threading.Thread(target=start_camera_thread).start()
         except ImportError as e:
-            log_and_print(f"Failed to start camera module: {e}", "error")
+            logging.error(f"Failed to start camera module: {e}")
     
     # Start ThingsBoard uploader if enabled
     if (config_data.get("thingsboard_enabled", True) and net):
@@ -1375,9 +1355,9 @@ if __name__ == "__main__":
             thingsboard_config
         )
         if thingsboard_uploader:
-            log_and_print("ThingsBoard uploader started successfully")
+            logging.info("ThingsBoard uploader started successfully")
         else:
-            log_and_print("ThingsBoard uploader failed to start (misconfigured)", "error")
+            logging.error("ThingsBoard uploader failed to start (misconfigured)")
     while True:
         time.sleep(5)
 

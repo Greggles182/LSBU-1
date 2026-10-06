@@ -32,18 +32,11 @@ camera_logger = logging.getLogger()
 camera_logger.setLevel(logging.DEBUG)
 camera_logger.addHandler(camera_log_handler)
 
-def log_and_print(message, level="info"):
-    print(message)
-    if level == "info":
-        logging.info(message)
-    elif level == "warning":
-        logging.warning(message)
-    elif level == "error":
-        logging.error(message)
+
 
 # Add helper to run shell commands and log stdout/stderr/return code
 def run_cmd(cmd, timeout=60):
-    log_and_print(f"Running command: {cmd}")
+    logging.info(f"Running command: {cmd}")
     try:
         res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
         if res.stdout and res.stdout.strip():
@@ -51,14 +44,14 @@ def run_cmd(cmd, timeout=60):
         if res.stderr and res.stderr.strip():
             logging.debug(f"cmd stderr: {res.stderr.strip()}")
         if res.returncode != 0:
-            log_and_print(f"Command failed (code {res.returncode}): {cmd}", "error")
+            logging.error(f"Command failed (code {res.returncode}): {cmd}")
             if res.stderr:
-                log_and_print(f"Command stderr: {res.stderr.strip()}", "error")
+                logging.error(f"Command stderr: {res.stderr.strip()}")
         else:
-            log_and_print(f"Command succeeded: {cmd}")
+            logging.info(f"Command succeeded: {cmd}")
         return res.returncode, res.stdout, res.stderr
     except Exception as e:
-        log_and_print(f"Exception running command '{cmd}': {e}", "error")
+        logging.error(f"Exception running command '{cmd}': {e}")
         return -1, "", str(e)
 
 def print1():
@@ -66,21 +59,21 @@ def print1():
         global DoorOpen, DOT, DOT1
         DoorOpen = False
         DOT = round(time.time()) - DOT1
-        log_and_print(f"DOOR SHUT AFTER {DOT} SECONDS")
+        logging.info(f"DOOR SHUT AFTER {DOT} SECONDS")
         if DOT < 10000000:
             url = "http://localhost:8000/Lidata"
             payload = {"data": DOT}
             response = requests.post(url, data=payload)
-            log_and_print(f"{response.status_code}: {response.text}") 
+            logging.info(f"{response.status_code}: {response.text}") 
     else:
-        log_and_print("Enable button not pressed, ignoring door shut event", "warning")
+        logging.warning("Enable button not pressed, ignoring door shut event")
 
 def print2():
     if enable.is_pressed:
         global DoorOpen, DOT1, DOT
         DOT1 = round(time.time())
         DOT = 0
-        log_and_print("DOOR OPEN")
+        logging.info("DOOR OPEN")
         time.sleep(1)  # short delay before taking first picture
         DoorOpen = True
 
@@ -88,27 +81,27 @@ def print2():
         if CAMERA_MODE == "doorcam":
             if get_sd_card_usage()["free_GB"] > 0.5:
                 filename = f"{IMAGES_PATH}{time.strftime('%Y-%m-%d_%H-%M-%S')}_image_1_from_door_open.jpg"
-                log_and_print(f"Taking photo: {filename}")
+                logging.info(f"Taking photo: {filename}")
                 rc, out, err = run_cmd(f"sudo fswebcam -r 1280x720 --no-banner {filename}")
                 if rc == 0:
                     if os.path.exists(filename):
-                        log_and_print(f"Photo saved: {filename}")
+                        logging.info(f"Photo saved: {filename}")
                     else:
-                        log_and_print(f"Command succeeded but file not found: {filename}", "error")
+                        logging.error(f"Command succeeded but file not found: {filename}")
                         if out:
                             logging.debug(f"fswebcam stdout: {out.strip()}")
                         if err:
                             logging.debug(f"fswebcam stderr: {err.strip()}")
                 else:
-                    log_and_print(f"Failed to save photo: {filename} (rc={rc})", "error")
+                    logging.error(f"Failed to save photo: {filename} (rc={rc})")
                     if out:
                         logging.debug(f"fswebcam stdout: {out.strip()}")
                     if err:
                         logging.debug(f"fswebcam stderr: {err.strip()}")
             else:
-                log_and_print("Insufficient SD card space to take photo", "error")
+                logging.error("Insufficient SD card space to take photo")
     else:
-        log_and_print("Enable button not pressed, ignoring door open event", "warning")
+        logging.warning("Enable button not pressed, ignoring door open event")
 
 # Assign event handlers for button press/release
 button.when_pressed = print1   # Door shut
@@ -142,25 +135,25 @@ if CAMERA_MODE == "doorcam":
                         # Take repeated photo every 10 seconds (only if camera mode is doorcam)
                         if get_sd_card_usage()["free_GB"] > 0.5:
                             filename = f"{IMAGES_PATH}{time.strftime('%Y-%m-%d_%H-%M-%S')}_image_{b}_from_door_open.jpg"
-                            log_and_print(f"Taking photo: {filename}")
+                            logging.info(f"Taking photo: {filename}")
                             rc, out, err = run_cmd(f"sudo fswebcam -r 1280x720 --no-banner {filename}")
                             if rc == 0:
                                 if os.path.exists(filename):
-                                    log_and_print(f"Photo saved: {filename}")
+                                    logging.info(f"Photo saved: {filename}")
                                 else:
-                                    log_and_print(f"Command succeeded but file not found: {filename}", "error")
+                                    logging.error(f"Command succeeded but file not found: {filename}")
                                     if out:
                                         logging.debug(f"fswebcam stdout: {out.strip()}")
                                     if err:
                                         logging.debug(f"fswebcam stderr: {err.strip()}")
                             else:
-                                log_and_print(f"Failed to save photo: {filename} (rc={rc})", "error")
+                                logging.error(f"Failed to save photo: {filename} (rc={rc})")
                                 if out:
                                     logging.debug(f"fswebcam stdout: {out.strip()}")
                                 if err:
                                     logging.debug(f"fswebcam stderr: {err.strip()}")
                         else:
-                            log_and_print("Insufficient SD card space to take photo", "error")
+                            logging.error("Insufficient SD card space to take photo")
                     i = 1
                     b += 1
             else:
@@ -168,4 +161,4 @@ if CAMERA_MODE == "doorcam":
                 b = 1 #Why was this 2 before?
             time.sleep(0.1)
         except Exception as e:
-            log_and_print(f"Error in camera loop: {e}", "error")
+            logging.error(f"Error in camera loop: {e}")
