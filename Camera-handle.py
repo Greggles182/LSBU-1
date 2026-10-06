@@ -125,20 +125,21 @@ def get_sd_card_usage():
         "used_percent": round((used / total) * 100, 2)
     }
 
-i = 1
-b = 1
-while True:
-    try:
-        if DoorOpen and enable.is_pressed:
-            while i <= 10:
-                if not DoorOpen:
-                    break
-                time.sleep(1)
-                i += 1
-                print(i)
-                if i == 10 and b <= 10:
-                    # Take repeated photo every 10 seconds (only if camera mode is doorcam)
-                    if CAMERA_MODE == "doorcam":
+#Only run loop if camera mode is doorcam as mode is constant
+if CAMERA_MODE == "doorcam":
+    i = 1
+    b = 1
+    while True:
+        try:
+            if DoorOpen and enable.is_pressed:
+                while i <= 10:
+                    if not DoorOpen:
+                        break
+                    time.sleep(1)
+                    i += 1
+                    print(i)
+                    if i == 10 and b <= 10:
+                        # Take repeated photo every 10 seconds (only if camera mode is doorcam)
                         if get_sd_card_usage()["free_GB"] > 0.5:
                             filename = f"{IMAGES_PATH}{time.strftime('%Y-%m-%d_%H-%M-%S')}_image_{b}_from_door_open.jpg"
                             log_and_print(f"Taking photo: {filename}")
@@ -162,8 +163,9 @@ while True:
                             log_and_print("Insufficient SD card space to take photo", "error")
                     i = 1
                     b += 1
-        else:
-            i = 1
-            b = 1 #Why was this 2 before?
-    except Exception as e:
-        log_and_print(f"Error in camera loop: {e}", "error")
+            else:
+                i = 1
+                b = 1 #Why was this 2 before?
+            time.sleep(0.1)
+        except Exception as e:
+            log_and_print(f"Error in camera loop: {e}", "error")

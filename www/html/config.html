@@ -489,19 +489,16 @@ document.addEventListener('DOMContentLoaded', function() {
             </div>
             <hr>
             <h2>Send Command</h2>
-            <!-- <button onclick="confirmAction(event, 'Are you sure you want to clear the log file?'); sendRequest('CLEARLOG', '')">Clear Log file</button> -->
             <button onclick="if (confirmAction('Are you sure you want to clear the log file?')) sendRequest('CLEARLOG', '')">Clear Log file</button>
             <button><a target="_blank" rel="noopener noreferrer" href="/server.log">View server logs</a></button>
             <button><a target="_blank" rel="noopener noreferrer" href="/camera.log">View camera logs</a></button>
             <button><a target="_blank" rel="noopener noreferrer" href="/tb.log">View ThingsBoardb sync logs</a></button>
             <button onclick="window.location.href='http://' + window.location.hostname + '/thingsboard-config.html'">ThingsBoard Config</button>
             <button onclick="sendRequest('UPDATETIME', '')" class="ETH">Update time from NTP server</button>
-            <!-- <button onclick="confirmAction(event, 'Are you sure you want to shut down the logger?'); sendRequest('SHUTDOWN', '')" class="confirm-action">Shutdown logger</button> -->
             <button onclick="sendRequest('RESTARTSOFTWARE', '')">Restart logger software</button>
             <button onclick="if (confirmAction('Are you sure you want to shut down the logger?')) sendRequest('SHUTDOWN', '')" class="confirm-action DAN">Shutdown logger</button>
             <h3>DANGER ZONE BELOW</h3>
-            <!-- <button onclick="confirmAction(event, 'This will erase all settings and restore factory defaults. Continue?'); sendRequest('FACTORYRESET', '')" class="confirm-action DAN">FACTORY RESET LOGGER</button> -->
-            <button onclick="if (confirmAction('This will erase all settings and restore factory defaults. Continue?')) sendRequest('FACTORYRESET', '')" class="confirm-action DAN">FACTORY RESET LOGGER</button>
+            <button onclick="if (confirmAction('This will erase all data and shutdown the logger. Continue?')) sendRequest('FACTORYRESET', '')" class="confirm-action DAN">FACTORY RESET LOGGER</button>
             <button id="removeTableBtn" class="DAN">Remove Table & Images</button>
             <select id="removeTableDropdown" style="display:none; margin-top:10px;"></select>
         </div>

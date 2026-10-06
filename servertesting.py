@@ -7,6 +7,8 @@ from glob import glob
 from thingsboard_uploader import start_thingsboard_uploader
 from bounded_logging import SizeCappedFileHandler
 from network_utils import get_session, resolve_interface, get_route_interface, interface_exists
+from pijuice import PiJuice # type: ignore
+from pymodbus.client import ModbusSerialClient  # type: ignore
 
 # Clipper only needs the APN for the PPP peer in almost all cases.
 # The user/password/auth fields are intentionally ignored here.
@@ -31,6 +33,16 @@ NTP_SERVER = "pool.ntp.org"
 DB_TABLE_PATTERN = r"[A-Za-z0-9_-]+"
 DB_TABLE_MAX_LENGTH = 50
 
+db_path = "/var/www/html/example.db"
+log_path = "/var/www/html/server.log"
+config_path = "/var/www/html/data.json"
+identity_path = "/var/www/html/device_identity.json"
+carrier_apns_path = "/var/www/html/carrier_apns.json"
+
+if platform.system() == "Windows":
+    print("This does not work on Windows.")
+    sys.exit(1)
+
 def sanitize_db_table(value):
     if not isinstance(value, str):
         return "data"
@@ -52,9 +64,9 @@ def update_time():
     ntp_time_str = get_ntp_time()  # e.g. "2025-04-05 16:28:37"
     log_and_print(f"NTP Time: {ntp_time_str}")
 
-    if OSCHECK and net:
+    if net:
         # Update the system time
-        os.system(f"sudo date -s '{ntp_time_str}'")
+        subprocess.run(['sudo', 'date', '-s', ntp_time_str], check=True)
 
         # Convert to struct_time
         ntp_time = time.strptime(ntp_time_str, '%Y-%m-%d %H:%M:%S')
@@ -92,153 +104,131 @@ def get_sd_card_usage():
     }
 
 
+pijuice = PiJuice(1, 0x14)
+bus = smbus.SMBus(1)
 
+# SHT3x hex adres
+SHT3x_ADDR		= 0x44
+SHT3x_SS		= 0x2C
+SHT3x_HIGH		= 0x06
+SHT3x_READ		= 0x00
 
-if platform.system() == "Windows":
-    OSCHECK = False
-    print("This does not work on Windows.")
-    sys.exit(1)
+# Configuration
+REGISTER_MAP = {
+    0x0000: "Voltage (Volts)",
+    0x0006: "Current (Amps)",
+    0x000C: "Active Power (Watts)",
+    0x0156: "Energy (kWh)",
+    0x0046: "Hertz (Hz)",
+}
 
-else:
-    print("Running on Linux or another OS")
-    OSCHECK = True
-    db_path = "/var/www/html/example.db"
-    log_path = "/var/www/html/server.log"
-    config_path = "/var/www/html/data.json"
-    identity_path = "/var/www/html/device_identity.json"
-    carrier_apns_path = "/var/www/html/carrier_apns.json"
-    #SHT3x - Sensirion Temperature Humidity sensor modules and setup.
-    import smbus, psutil # type: ignore
-    from pijuice import PiJuice # type: ignore
-    pijuice = PiJuice(1, 0x14)
-    bus = smbus.SMBus(1)
+PORT = '/dev/ttyUSB0'
+BAUDRATE = 9600
+PARITY = 'N'
+STOPBITS = 1
+BYTESIZE = 8
+TIMEOUT = 1
+client = ModbusSerialClient(
+    port=PORT,
+    baudrate=BAUDRATE,
+    parity=PARITY,
+    stopbits=STOPBITS,
+    bytesize=BYTESIZE,
+    timeout=TIMEOUT,
+)
+def read_register(client, address):
+    try:
+        response = client.read_input_registers(address=address, count=2)
+        if not response.isError():
+            # Combine registers in the correct order (high byte first)
+            #inputArray = [response.registers[1], response.registers[0]]
+            int32Val = response.registers[1] + (response.registers[0] << 16)
+            decoded_value = struct.unpack('f', struct.pack('i', int32Val))[0]
+            return decoded_value#, inputArray, int32Val
+        else:
+            raise Exception(f"Error reading register {address}: {response}")
+    except Exception as e:
+        log_and_print(f"Error reading register {address}: {e}")
+        return None
+# Function to get PiJuice stats (using correct methods)
+def get_pijuice_stats():
+    try:
+        # Getting battery charge level
+        battery_charge = pijuice.status.GetChargeLevel()
+        # Getting battery voltage
+        battery_voltage = pijuice.status.GetBatteryVoltage()
+        # Getting battery temperature
+        battery_temperature = pijuice.status.GetBatteryTemperature()
+        # Getting current draw
+        current_draw = pijuice.status.GetBatteryCurrent()
 
-    # SHT3x hex adres
-    SHT3x_ADDR		= 0x44
-    SHT3x_SS		= 0x2C
-    SHT3x_HIGH		= 0x06
-    SHT3x_READ		= 0x00
-
-    #SDM120M - Eastron SDM120 Modbus Energy Meter modules and setup.
-    from pymodbus.client import ModbusSerialClient  # type: ignore
-    import struct
-
-    # Configuration
-    REGISTER_MAP = {
-        0x0000: "Voltage (Volts)",
-        0x0006: "Current (Amps)",
-        0x000C: "Active Power (Watts)",
-        0x0156: "Energy (kWh)",
-        0x0046: "Hertz (Hz)",
-    }
-    
-    PORT = '/dev/ttyUSB0'
-    BAUDRATE = 9600
-    PARITY = 'N'
-    STOPBITS = 1
-    BYTESIZE = 8
-    TIMEOUT = 1
-    client = ModbusSerialClient(
-        port=PORT,
-        baudrate=BAUDRATE,
-        parity=PARITY,
-        stopbits=STOPBITS,
-        bytesize=BYTESIZE,
-        timeout=TIMEOUT,
-    )
-    def read_register(client, address):
-        try:
-            response = client.read_input_registers(address=address, count=2)
-            if not response.isError():
-                # Combine registers in the correct order (high byte first)
-                #inputArray = [response.registers[1], response.registers[0]]
-                int32Val = response.registers[1] + (response.registers[0] << 16)
-                decoded_value = struct.unpack('f', struct.pack('i', int32Val))[0]
-                return decoded_value#, inputArray, int32Val
-            else:
-                raise Exception(f"Error reading register {address}: {response}")
-        except Exception as e:
-            log_and_print(f"Error reading register {address}: {e}")
-            return None
-    # Function to get PiJuice stats (using correct methods)
-    def get_pijuice_stats():
-        try:
-            # Getting battery charge level
-            battery_charge = pijuice.status.GetChargeLevel()
-            # Getting battery voltage
-            battery_voltage = pijuice.status.GetBatteryVoltage()
-            # Getting battery temperature
-            battery_temperature = pijuice.status.GetBatteryTemperature()
-            # Getting current draw
-            current_draw = pijuice.status.GetBatteryCurrent()
-
-            stats = {
-                "battery_charge_level": battery_charge['data'],
-                "battery_voltage_mV": battery_voltage['data'],
-                "battery_temperature_C": battery_temperature['data'],
-                "current_draw_mA": (current_draw['data']/10),
-            }
-
-            return stats
-
-        except Exception as e:
-            log_and_print(f"Error fetching PiJuice stats: {e}")
-            return None
-
-    # Function to get Raspberry Pi CPU temperature
-    def get_cpu_temp():
-        try:
-            # Read the CPU temperature from the system file
-            temp = float(open("/sys/class/thermal/thermal_zone0/temp").read()) / 1000
-            return temp
-        except Exception as e:
-            log_and_print(f"Error fetching CPU temperature: {e}")
-            return None
-
-    # Function to get system memory usage with accurate values (Old function was shit)
-    def get_memory_info():
-        try:
-            memory = psutil.virtual_memory()
-            total_mb = memory.total / (1024 ** 2)
-            available_mb = memory.available / (1024 ** 2)
-            used_mb = total_mb - available_mb
-            memory_stats = {
-                "total_memory_MB": round(total_mb, 1),
-                "used_memory_MB": round(used_mb, 1),
-                "free_memory_MB": round(available_mb, 1),
-                "memory_usage_percent": memory.percent
-            }
-            return memory_stats
-        except Exception as e:
-            log_and_print(f"Error fetching memory info: {e}")
-            return None
-
-    # Function to get system CPU usage
-    def get_cpu_usage():
-        try:
-            cpu_usage = psutil.cpu_percent(interval=1)
-            return {"cpu_usage_percent": cpu_usage}
-        except Exception as e:
-            log_and_print(f"Error fetching CPU usage: {e}")
-            return None
-
-    # Combine PiJuice and system stats into a single dictionary
-    def get_system_and_pijuice_stats():
-        pijuice_stats = get_pijuice_stats()
-        cpu_temp = get_cpu_temp()
-        memory_info = get_memory_info()
-        cpu_usage = get_cpu_usage()
-        sd_usage = get_sd_card_usage()
-
-        system_stats = {
-            "pijuice_stats": pijuice_stats,
-            "cpu_temperature_C": cpu_temp,
-            "cpu_usage_percent": cpu_usage["cpu_usage_percent"],
-            "memory_info": memory_info,
-            "sd_info": sd_usage
+        stats = {
+            "battery_charge_level": battery_charge['data'],
+            "battery_voltage_mV": battery_voltage['data'],
+            "battery_temperature_C": battery_temperature['data'],
+            "current_draw_mA": (current_draw['data']/10),
         }
 
-        return system_stats
+        return stats
+
+    except Exception as e:
+        log_and_print(f"Error fetching PiJuice stats: {e}")
+        return None
+
+# Function to get Raspberry Pi CPU temperature
+def get_cpu_temp():
+    try:
+        # Read the CPU temperature from the system file
+        temp = float(open("/sys/class/thermal/thermal_zone0/temp").read()) / 1000
+        return temp
+    except Exception as e:
+        log_and_print(f"Error fetching CPU temperature: {e}")
+        return None
+
+# Function to get system memory usage with accurate values (Old function was shit)
+def get_memory_info():
+    try:
+        memory = psutil.virtual_memory()
+        total_mb = memory.total / (1024 ** 2)
+        available_mb = memory.available / (1024 ** 2)
+        used_mb = total_mb - available_mb
+        memory_stats = {
+            "total_memory_MB": round(total_mb, 1),
+            "used_memory_MB": round(used_mb, 1),
+            "free_memory_MB": round(available_mb, 1),
+            "memory_usage_percent": memory.percent
+        }
+        return memory_stats
+    except Exception as e:
+        log_and_print(f"Error fetching memory info: {e}")
+        return None
+
+# Function to get system CPU usage
+def get_cpu_usage():
+    try:
+        cpu_usage = psutil.cpu_percent(interval=1)
+        return {"cpu_usage_percent": cpu_usage}
+    except Exception as e:
+        log_and_print(f"Error fetching CPU usage: {e}")
+        return None
+
+# Combine PiJuice and system stats into a single dictionary
+def get_system_and_pijuice_stats():
+    pijuice_stats = get_pijuice_stats()
+    cpu_temp = get_cpu_temp()
+    memory_info = get_memory_info()
+    cpu_usage = get_cpu_usage()
+    sd_usage = get_sd_card_usage()
+
+    system_stats = {
+        "pijuice_stats": pijuice_stats,
+        "cpu_temperature_C": cpu_temp,
+        "cpu_usage_percent": cpu_usage["cpu_usage_percent"],
+        "memory_info": memory_info,
+        "sd_info": sd_usage
+    }
+
+    return system_stats
 
 def log_and_print(message, level="info"):
     if level == "info":
@@ -512,6 +502,7 @@ def cycle_ppp_link():
 def restartSoftware():
     if config_data.get("uplink_mode") == "ppp0":
         cycle_ppp_link()
+    subprocess.Popen(["sudo", "systemctl", "restart", "hostapd.service"]) # In addition to new midnight restart of it (systemctl list-timers)
     subprocess.Popen(["sudo", "systemctl", "restart", "startup.service"])
 
 @app.route('/', methods=['POST', 'GET'])
@@ -538,11 +529,8 @@ def handle_request():
                 return f"Error updating time: {e}", "error", 500
         elif command == "SHUTDOWN":
             log_and_print("Shutting down system", "warning")
-            if OSCHECK:
-                pijuice.power.SetPowerOff(120)
-                os.system("sudo shutdown -h 0")
-            else:
-                return "Something is very fucked", 599
+            pijuice.power.SetPowerOff(120)
+            subprocess.run(['sudo', 'shutdown', '-h', '0'])
             return "Shutting down system", 200
         elif command == "FACTORYRESET":
             os.remove(config_path)
@@ -576,9 +564,9 @@ def handle_request():
                         except Exception as e:
                             log_and_print(f"Error deleting directory {d}: {e}")
             log_and_print("Performed factory reset", "info")
-            log_and_print("WILL NOT DELETE Wifi name or other factory values", "warning")
-            log_and_print("LOG IN USING SSH TO CHANGE THESE VALUES.", "warning")
-            restartSoftware()
+            log_and_print("All data and common settings deleted", "warning")
+            pijuice.power.SetPowerOff(120)
+            subprocess.run(['sudo', 'shutdown', '-h', '0'])
             return "Factory reset performed", 200
         elif command == "RESTARTSOFTWARE":
             log_and_print("Restarting software", "warning")
@@ -978,11 +966,7 @@ def test_connection():
 
 @app.route("/status", methods=["GET"])
 def status():
-    if not OSCHECK:
-        return "Something is very fucked.", 500
-    else:
-        stat = get_system_and_pijuice_stats()
-    return jsonify(stat), 200
+    return jsonify(get_system_and_pijuice_stats()), 200
 
 
 @app.route("/data", methods=["POST"])
@@ -1082,20 +1066,20 @@ def run_flask():
     log_and_print("Flask server started")
 
 
-def vacuum_journal():
-    while True:
-        try:
-            subprocess.run(
-                ["sudo", "journalctl", "--rotate", "--vacuum-size=100M"],
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-            log_and_print("System journal vacuumed to 100 MB")
-        except Exception as e:
-            log_and_print(f"Failed to vacuum system journal: {e}", "warning")
-        time.sleep(24 * 60 * 60)
+# def vacuum_journal(): ##No longer needed as logs to RAM now
+#     while True:
+#         try:
+#             subprocess.run(
+#                 ["sudo", "journalctl", "--rotate", "--vacuum-size=100M"],
+#                 check=True,
+#                 capture_output=True,
+#                 text=True,
+#                 timeout=60,
+#             )
+#             log_and_print("System journal vacuumed to 100 MB")
+#         except Exception as e:
+#             log_and_print(f"Failed to vacuum system journal: {e}", "warning")
+#         time.sleep(24 * 60 * 60)
 
 
 def collect_results():
@@ -1358,44 +1342,42 @@ def remove_table_and_images():
     
 
 if __name__ == "__main__":
-    if OSCHECK and config_data.get("uplink_mode") == "ppp0":
+    if config_data.get("uplink_mode") == "ppp0":
         cycle_ppp_link()
-    if OSCHECK:
-        configure_ip()
-        time.sleep(10)
-        threading.Thread(target=vacuum_journal, daemon=True).start()
+    configure_ip()
+    time.sleep(10)
+    # threading.Thread(target=vacuum_journal, daemon=True).start()
     threading.Thread(target=run_flask).start()
-    if OSCHECK:
-        threading.Thread(target=collect_results).start()
-        threading.Thread(target=fan).start()
-        if config_data["CamEnable"] in ("door", "doorcam"):
-            def start_camera_thread():
-                subprocess.run(["sudo", "python3", "/home/pi/Camera-handle.py"])
-            log_and_print("Camera/door sensor enabled, starting camera thread")
-            try:
-                threading.Thread(target=start_camera_thread).start()
-            except ImportError as e:
-                log_and_print(f"Failed to start camera module: {e}", "error")
-        
-        # Start ThingsBoard uploader if enabled
-        if (config_data.get("thingsboard_enabled", True) and net):
-            thingsboard_config = {
-                "thingsboard_url": config_data.get("thingsboard_url", ""),
-                "thingsboard_token": config_data.get("thingsboard_token", ""),
-                "database_path": db_path,
-                "state_path": "/var/www/html/thingsboard_upload_state.json",
-                "batch_size": config_data.get("batch_size", 100),
-                "check_interval": config_data.get("check_interval", 5),
-                "http_timeout": 20,
-                "uplink_mode": config_data.get("uplink_mode", "auto"),
-            }
-            thingsboard_uploader = start_thingsboard_uploader(
-                thingsboard_config
-            )
-            if thingsboard_uploader:
-                log_and_print("ThingsBoard uploader started successfully")
-            else:
-                log_and_print("ThingsBoard uploader failed to start (misconfigured)", "error")
+    threading.Thread(target=collect_results).start()
+    threading.Thread(target=fan).start()
+    if config_data["CamEnable"] in ("door", "doorcam"):
+        def start_camera_thread():
+            subprocess.run(["sudo", "python3", "/home/pi/Camera-handle.py"])
+        log_and_print("Camera/door sensor enabled, starting camera thread")
+        try:
+            threading.Thread(target=start_camera_thread).start()
+        except ImportError as e:
+            log_and_print(f"Failed to start camera module: {e}", "error")
+    
+    # Start ThingsBoard uploader if enabled
+    if (config_data.get("thingsboard_enabled", True) and net):
+        thingsboard_config = {
+            "thingsboard_url": config_data.get("thingsboard_url", ""),
+            "thingsboard_token": config_data.get("thingsboard_token", ""),
+            "database_path": db_path,
+            "state_path": "/var/www/html/thingsboard_upload_state.json",
+            "batch_size": config_data.get("batch_size", 100),
+            "check_interval": config_data.get("check_interval", 5),
+            "http_timeout": 20,
+            "uplink_mode": config_data.get("uplink_mode", "auto"),
+        }
+        thingsboard_uploader = start_thingsboard_uploader(
+            thingsboard_config
+        )
+        if thingsboard_uploader:
+            log_and_print("ThingsBoard uploader started successfully")
+        else:
+            log_and_print("ThingsBoard uploader failed to start (misconfigured)", "error")
     while True:
         time.sleep(5)
 
