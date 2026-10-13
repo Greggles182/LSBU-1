@@ -15,7 +15,6 @@ import logging
 import traceback
 from threading import Thread
 from bounded_logging import SizeCappedFileHandler
-from network_utils import get_session, resolve_interface
 
 
 # ============================================================
@@ -23,6 +22,9 @@ from network_utils import get_session, resolve_interface
 # ============================================================
 
 LOG_FILE = "/var/www/html/tb.log"
+LAST_UPLOAD_KEY = "__last_successful_upload"
+LAST_DIAGNOSTICS_KEY = "__last_diagnostics_sample"
+PENDING_DIAGNOSTICS_KEY = "__pending_diagnostics"
 
 logger = logging.getLogger("thingsboard_uploader")
 logger.setLevel(logging.INFO)
@@ -59,8 +61,9 @@ class ThingsboardUploader:
                 - batch_size: Rows per HTTP request (default 100)
                 - check_interval: Seconds between checks (default 5)
                 - http_timeout: HTTP request timeout (default 20)
-                - uplink_mode: "ppp0" | "eth0" | "auto" -- which interface to bind
-                  outgoing requests to (default "auto" = no binding, OS decides)
+                - connectivity_check: Optional callable that checks whether the
+                  kernel-selected route is usable
+                - diagnostics_provider: Optional callable for daily diagnostics
         """
 
         self.config = config
@@ -101,15 +104,16 @@ class ThingsboardUploader:
             20
         )
 
-        self.uplink_mode = config.get(
-            "uplink_mode",
-            "auto"
-        )
-
-        self.session = get_session(
-            resolve_interface(self.uplink_mode),
-            logger=logger,
-        )
+        self.session = requests.Session()
+        self.connectivity_check = config.get("connectivity_check", lambda: True)
+        self.diagnostics_provider = config.get("diagnostics_provider")
+        self.diagnostics_interval = config.get("diagnostics_interval", 24 * 60 * 60)
+        self.network_available = None
+        self.last_successful_upload = None
+        self.next_diagnostics_at = None
+        self.next_upload_attempt = 0.0
+        self.retry_backoff = max(1, self.check_interval)
+        self.maximum_retry_backoff = 300
 
         self.heartbeat_interval = 60
 
@@ -188,6 +192,98 @@ class ThingsboardUploader:
             logger.exception(
                 "Failed to save upload state"
             )
+
+    def get_last_successful_upload(self):
+        """Return the persisted time of the most recent successful telemetry post."""
+        if self.last_successful_upload is None:
+            self.last_successful_upload = self.load_state().get(LAST_UPLOAD_KEY)
+        return self.last_successful_upload
+
+    def connectivity_available(self):
+        try:
+            return bool(self.connectivity_check())
+        except Exception:
+            logger.exception("Connectivity check failed unexpectedly")
+            return False
+
+    def can_attempt_upload(self):
+        return time.monotonic() >= self.next_upload_attempt
+
+    def record_upload_failure(self):
+        self.next_upload_attempt = time.monotonic() + self.retry_backoff
+        logger.error(
+            "Pausing ThingsBoard uploads for %s seconds before retrying.",
+            self.retry_backoff,
+        )
+        self.retry_backoff = min(
+            self.retry_backoff * 2,
+            self.maximum_retry_backoff,
+        )
+
+    def record_upload_pass_success(self):
+        self.next_upload_attempt = 0.0
+        self.retry_backoff = max(1, self.check_interval)
+
+    def record_upload_success(self, state):
+        self.last_successful_upload = time.strftime(
+            "%Y-%m-%d %H:%M:%S",
+            time.localtime(),
+        )
+        state[LAST_UPLOAD_KEY] = self.last_successful_upload
+
+    def capture_daily_diagnostics(self):
+        """Persist one diagnostic snapshot per day for delivery when a route returns."""
+        if not callable(self.diagnostics_provider):
+            return
+
+        now = time.time()
+        if self.next_diagnostics_at is None:
+            last_sample = self.load_state().get(LAST_DIAGNOSTICS_KEY)
+            try:
+                self.next_diagnostics_at = float(last_sample) + self.diagnostics_interval
+            except (TypeError, ValueError):
+                self.next_diagnostics_at = now + self.diagnostics_interval
+
+        if now < self.next_diagnostics_at:
+            return
+
+        state = self.load_state()
+        try:
+            diagnostics = self.diagnostics_provider()
+            if not isinstance(diagnostics, dict):
+                raise TypeError("diagnostics provider must return a dictionary")
+            values = {
+                key: value
+                for key, value in diagnostics.items()
+                if isinstance(value, (str, int, float, bool)) or value is None
+            }
+            state.setdefault(PENDING_DIAGNOSTICS_KEY, []).append({
+                "ts": int(now * 1000),
+                "values": values,
+            })
+            logger.info("Captured daily modem/network diagnostics")
+        except Exception:
+            logger.exception("Failed to capture daily modem/network diagnostics")
+        finally:
+            state[LAST_DIAGNOSTICS_KEY] = now
+            self.save_state(state)
+            self.next_diagnostics_at = now + self.diagnostics_interval
+
+    def send_pending_diagnostics(self):
+        state = self.load_state()
+        pending = state.get(PENDING_DIAGNOSTICS_KEY, [])
+        if not isinstance(pending, list) or not pending:
+            return True
+
+        while pending:
+            diagnostic = pending[0]
+            if not isinstance(diagnostic, dict) or not self.send_telemetry([diagnostic]):
+                return False
+            pending.pop(0)
+            self.record_upload_success(state)
+            state[PENDING_DIAGNOSTICS_KEY] = pending
+            self.save_state(state)
+        return True
 
     def get_tables(self, conn):
         """Return all normal SQLite tables."""
@@ -531,8 +627,8 @@ class ThingsboardUploader:
             self.heartbeat_interval
         )
 
-        # Send immediately when the uploader starts.
-        self.update_last_updated()
+        if self.connectivity_available() and self.can_attempt_upload():
+            self.update_last_updated()
 
         while self.running:
 
@@ -545,7 +641,11 @@ class ThingsboardUploader:
 
                 time.sleep(1)
 
-            if self.running:
+            if (
+                self.running
+                and self.can_attempt_upload()
+                and self.connectivity_available()
+            ):
                 self.update_last_updated()
 
         logger.info(
@@ -651,7 +751,7 @@ class ThingsboardUploader:
             return False
 
         state[table_name] = highest_rowid
-
+        self.record_upload_success(state)
         self.save_state(
             state
         )
@@ -668,6 +768,24 @@ class ThingsboardUploader:
 
     def upload_pass(self):
         """Scan complete SQLite database and upload new data."""
+        if not self.connectivity_available():
+            if self.network_available is not False:
+                logger.error(
+                    "No usable kernel-routed network connection; pausing ThingsBoard uploads."
+                )
+            self.network_available = False
+            return
+
+        if self.network_available is False:
+            logger.info("Kernel-routed network connection recovered; resuming ThingsBoard uploads.")
+        self.network_available = True
+
+        if not self.can_attempt_upload():
+            return
+
+        if not self.send_pending_diagnostics():
+            self.record_upload_failure()
+            return
 
         if not os.path.exists(
             self.database_path
@@ -683,6 +801,7 @@ class ThingsboardUploader:
         state = self.load_state()
 
         conn = None
+        pass_succeeded = True
 
         try:
 
@@ -700,6 +819,7 @@ class ThingsboardUploader:
                     "No SQLite tables found."
                 )
 
+                self.record_upload_pass_success()
                 return
 
             logger.info(
@@ -712,13 +832,15 @@ class ThingsboardUploader:
 
                 try:
 
-                    self.upload_table(
+                    if not self.upload_table(
                         conn,
                         table_name,
                         state
-                    )
+                    ):
+                        pass_succeeded = False
 
                 except Exception:
+                    pass_succeeded = False
 
                     logger.exception(
                         "Unhandled error processing table %s",
@@ -726,12 +848,14 @@ class ThingsboardUploader:
                     )
 
         except sqlite3.Error:
+            pass_succeeded = False
 
             logger.exception(
                 "SQLite error"
             )
 
         except Exception:
+            pass_succeeded = False
 
             logger.exception(
                 "Unexpected uploader error"
@@ -741,6 +865,11 @@ class ThingsboardUploader:
 
             if conn is not None:
                 conn.close()
+
+        if pass_succeeded:
+            self.record_upload_pass_success()
+        else:
+            self.record_upload_failure()
 
     def run(self):
         """Main uploader loop."""
@@ -801,7 +930,7 @@ class ThingsboardUploader:
         while self.running:
 
             try:
-
+                self.capture_daily_diagnostics()
                 self.upload_pass()
 
             except KeyboardInterrupt:

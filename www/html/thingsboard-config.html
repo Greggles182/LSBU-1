@@ -312,6 +312,84 @@
             pointer-events: none;
         }
 
+        .status-card {
+            margin: 16px 0;
+            padding: 14px;
+            background: #444;
+            border-radius: 6px;
+        }
+
+        .status-card h2 {
+            margin: 0 0 12px;
+            font-size: 17px;
+        }
+
+        .status-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin: 9px 0;
+        }
+
+        .status-row-detail {
+            display: block;
+            margin-top: 3px;
+            color: #bbb;
+            font-size: 12px;
+            overflow-wrap: anywhere;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            margin-right: 8px;
+            border-radius: 50%;
+            background: #888;
+        }
+
+        .status-indicator.online {
+            background: #3ffd6e;
+        }
+
+        .status-indicator.offline {
+            background: #f44336;
+        }
+
+        .signal-meter {
+            display: flex;
+            align-items: flex-end;
+            gap: 3px;
+            height: 24px;
+        }
+
+        .signal-meter span {
+            display: block;
+            width: 7px;
+            height: 5px;
+            background: #777;
+            border-radius: 2px 2px 0 0;
+        }
+
+        .signal-meter span:nth-child(2) { height: 9px; }
+        .signal-meter span:nth-child(3) { height: 14px; }
+        .signal-meter span:nth-child(4) { height: 19px; }
+        .signal-meter span:nth-child(5) { height: 24px; }
+        .signal-meter span.active { background: #3ffd6e; }
+
+        .status-detail {
+            color: #ccc;
+            font-size: 13px;
+            overflow-wrap: anywhere;
+        }
+
+        .status-updated {
+            color: #aaa;
+            font-size: 12px;
+            text-align: center;
+        }
+
         /* .status-indicator {
             display: inline-block;
             width: 12px;
@@ -433,14 +511,6 @@
 
             <div class="section" id="networkSection">
                 <h3 class="section-title">Network and Cellular</h3>
-                <div class="form-group">
-                    <label for="uplinkMode">Uplink Mode</label>
-                    <select id="uplinkMode" name="uplink_mode">
-                        <option value="auto">Automatic</option>
-                        <option value="eth0">Ethernet (eth0)</option>
-                        <option value="ppp0">Cellular (ppp0)</option>
-                    </select>
-                </div>
                 <div class="form-group checkbox-group">
                     <input type="checkbox" id="cellularEnabled" name="cellular_enabled">
                     <label for="cellularEnabled" class="checkbox-label">Enable Cellular</label>
@@ -473,6 +543,51 @@
 
         <aside class="right-container">
             <h1>Status</h1>
+            <div class="status-card">
+                <h2>Network</h2>
+                <div class="status-row">
+                    <span><span id="ppp0Indicator" class="status-indicator"></span>ppp0 internet</span>
+                    <div>
+                        <strong id="ppp0Status">Checking...</strong>
+                        <small class="status-row-detail" id="ppp0Error"></small>
+                    </div>
+                </div>
+                <div class="status-row">
+                    <span><span id="eth0Indicator" class="status-indicator"></span>eth0 internet</span>
+                    <div>
+                        <strong id="eth0Status">Checking...</strong>
+                        <small class="status-row-detail" id="eth0Error"></small>
+                    </div>
+                </div>
+                <div class="status-detail" id="routeStatus">Kernel route: checking...</div>
+            </div>
+            <div class="status-card">
+                <h2>Cellular modem</h2>
+                <div class="status-row">
+                    <span>SIM</span>
+                    <strong id="simStatus">Unknown</strong>
+                </div>
+                <div class="status-row">
+                    <span>Signal</span>
+                    <div class="signal-meter" id="signalMeter" role="img" aria-label="Signal unavailable">
+                        <span></span><span></span><span></span><span></span><span></span>
+                    </div>
+                </div>
+                <div class="status-detail" id="signalDetail">Signal unavailable</div>
+                <div class="status-detail" id="registrationStatus">Network registration unknown</div>
+                <div class="status-detail" id="operatorStatus">Operator unknown</div>
+                <div class="status-detail" id="packetStatus">Packet data status unknown</div>
+                <div class="status-detail" id="modemIdentity">Modem: A7683E</div>
+                <div class="status-detail" id="modemFirmware">Firmware unavailable</div>
+                <div class="status-detail" id="modemCheckedAt">Modem status has not been checked</div>
+                <div class="status-detail" id="modemError"></div>
+            </div>
+            <div class="status-card">
+                <h2>ThingsBoard</h2>
+                <div class="status-detail">Last successful upload</div>
+                <strong id="lastUploadStatus">Not uploaded yet</strong>
+            </div>
+            <div id="statusUpdated" class="status-updated">Status has not been refreshed</div>
         </aside>
     </div>
 
@@ -484,6 +599,10 @@
 
         document.addEventListener('DOMContentLoaded', function() {
             loadConfig();
+            loadNetworkStatus(true);
+            window.setInterval(function() {
+                loadNetworkStatus(false);
+            }, 30000);
 
             document.getElementById('enableThingsboard').addEventListener('change', function() {
                 updateUIState();
@@ -496,6 +615,78 @@
                 saveConfig();
             });
         });
+
+        async function loadNetworkStatus(refreshModem) {
+            const currentHostname = window.location.hostname || 'localhost';
+            const refreshQuery = refreshModem ? '?refresh=1' : '';
+            try {
+                const response = await fetch(
+                    `http://${currentHostname}:8000/network-status${refreshQuery}`
+                );
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const status = await response.json();
+
+                ['ppp0', 'eth0'].forEach(function(interfaceName) {
+                    const state = status.interfaces[interfaceName] || {};
+                    const reachable = state.reachable === true;
+                    document.getElementById(`${interfaceName}Status`).textContent =
+                        reachable ? 'Reachable' : 'Probe failed';
+                    const indicator = document.getElementById(`${interfaceName}Indicator`);
+                    indicator.classList.toggle('online', reachable);
+                    indicator.classList.toggle('offline', !reachable);
+                    indicator.title = state.error || '';
+                    document.getElementById(`${interfaceName}Error`).textContent =
+                        state.error || '';
+                });
+
+                document.getElementById('routeStatus').textContent =
+                    status.network_available
+                        ? 'Kernel-selected route: internet reachable'
+                        : 'Kernel-selected route: no internet connection';
+
+                const modem = status.modem || {};
+                document.getElementById('simStatus').textContent =
+                    modem.attached ? (modem.sim_state || 'Unknown') : 'Modem not attached';
+                const bars = Number.isInteger(modem.signal_bars)
+                    ? Math.max(0, Math.min(5, modem.signal_bars))
+                    : 0;
+                const meter = document.getElementById('signalMeter');
+                Array.from(meter.children).forEach(function(bar, index) {
+                    bar.classList.toggle('active', index < bars);
+                });
+                meter.setAttribute(
+                    'aria-label',
+                    bars ? `Signal strength: ${bars} of 5 bars` : 'Signal unavailable'
+                );
+                document.getElementById('signalDetail').textContent =
+                    modem.signal_percent === null || modem.signal_percent === undefined
+                        ? 'Signal unavailable'
+                        : `${modem.signal_percent}%${modem.signal_dbm === null || modem.signal_dbm === undefined ? '' : ` (${modem.signal_dbm} dBm)`}${modem.signal_rssi === null ? '' : ` (CSQ ${modem.signal_rssi}/31)`}`;
+                document.getElementById('registrationStatus').textContent =
+                    modem.registration_status || 'Network registration unavailable';
+                document.getElementById('operatorStatus').textContent =
+                    modem.operator_status || 'Operator unavailable';
+                document.getElementById('packetStatus').textContent =
+                    modem.packet_attachment_status || 'Packet data status unavailable';
+                document.getElementById('modemIdentity').textContent =
+                    `Modem: ${modem.manufacturer || 'manufacturer unavailable'} ${modem.model || ''}`.trim();
+                document.getElementById('modemFirmware').textContent =
+                    modem.firmware || 'Firmware unavailable';
+                document.getElementById('modemError').textContent = modem.error || '';
+                document.getElementById('modemCheckedAt').textContent =
+                    modem.checked_at ? `Modem checked ${modem.checked_at}` : 'Modem status has not been checked';
+                document.getElementById('lastUploadStatus').textContent =
+                    status.last_successful_upload || 'Not uploaded yet';
+                document.getElementById('statusUpdated').textContent =
+                    `Status refreshed ${new Date().toLocaleTimeString()}`;
+            } catch (error) {
+                document.getElementById('statusUpdated').textContent =
+                    `Status unavailable: ${error.message}`;
+                console.error('Error loading network status:', error);
+            }
+        }
 
         function loadConfig() {
             showStatus('Loading configuration...', 'info');
@@ -521,7 +712,6 @@
                 document.getElementById('thingsboardToken').value = data.thingsboard_token || '';
                 document.getElementById('batchSize').value = data.batch_size || 100;
                 // document.getElementById('checkInterval').value = data.check_interval || 300;
-                document.getElementById('uplinkMode').value = data.uplink_mode || 'auto';
                 document.getElementById('cellularEnabled').checked = data.cellular_enabled || false;
                 // document.getElementById('loggerId').value = data.logger_ID || '';
 
@@ -590,7 +780,6 @@
                     thingsboard_token: document.getElementById('thingsboardToken').value.trim(),
                     batch_size: parseInt(document.getElementById('batchSize').value),
                     check_interval: currentConfig.check_interval || 5,
-                    uplink_mode: document.getElementById('uplinkMode').value,
                     cellular_enabled: document.getElementById('cellularEnabled').checked,
                     active_carrier: document.getElementById('activeCarrier').value,
                     custom_apn: {

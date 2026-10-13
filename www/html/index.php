@@ -114,7 +114,7 @@ try {
             <button onclick="updateRange()">Update Range</button>
             <button onclick="resetRange()">Reset Range</button>
             <label>Logger ID:</label>
-            <h5 id="loggerID"><?php echo htmlspecialchars($dataArray['logger_ID'] ?? 'N/A'); ?></h6>
+            <label id="loggerID"><?php echo htmlspecialchars($dataArray['logger_ID'] ?? 'N/A'); ?></label>
         </div>
         <div class="actions">
             <button onclick="downloadCSV()">Download CSV of current data range</button>
