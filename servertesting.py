@@ -1204,8 +1204,7 @@ def collect_results():
                         "EN4": values[3],
                         "EN5": values[4],
                     }
-                response = requests.post(url, json=data)
-                logging.info("Server Response:")
+                requests.post(url, json=data)
             else:
                 logging.warning("Insufficient SDM120M values or sensor data to send to server")
         except Exception:
