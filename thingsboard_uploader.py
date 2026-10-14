@@ -13,6 +13,7 @@ import os
 import time
 import logging
 import traceback
+from contextlib import nullcontext
 from threading import Thread
 from bounded_logging import SizeCappedFileHandler
 
@@ -106,6 +107,7 @@ class ThingsboardUploader:
 
         self.session = requests.Session()
         self.connectivity_check = config.get("connectivity_check", lambda: True)
+        self.network_operation_lock = config.get("network_operation_lock")
         self.diagnostics_provider = config.get("diagnostics_provider")
         self.diagnostics_interval = config.get("diagnostics_interval", 24 * 60 * 60)
         self.network_available = None
@@ -205,6 +207,15 @@ class ThingsboardUploader:
         except Exception:
             logger.exception("Connectivity check failed unexpectedly")
             return False
+
+    def post(self, url, **kwargs):
+        lock_context = (
+            self.network_operation_lock
+            if self.network_operation_lock is not None
+            else nullcontext()
+        )
+        with lock_context:
+            return self.session.post(url, **kwargs)
 
     def can_attempt_upload(self):
         return time.monotonic() >= self.next_upload_attempt
@@ -460,7 +471,7 @@ class ThingsboardUploader:
 
         try:
 
-            response = self.session.post(
+            response = self.post(
                 self.telemetry_url,
                 json=payload,
                 headers={
@@ -511,7 +522,7 @@ class ThingsboardUploader:
 
         try:
 
-            response = self.session.post(
+            response = self.post(
                 self.attributes_url,
                 json=payload,
                 headers={
@@ -574,7 +585,7 @@ class ThingsboardUploader:
 
         try:
 
-            response = self.session.post(
+            response = self.post(
                 self.attributes_url,
                 json=payload,
                 headers={

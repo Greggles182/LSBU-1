@@ -36,7 +36,13 @@ NETWORK_CHECK_INTERVAL = 30
 PPP_RETRY_INTERVAL = 300
 STATUS_REFRESH_INTERVAL = 60
 DAILY_DIAGNOSTICS_INTERVAL = 24 * 60 * 60
+PPP_CONNECT_GRACE_PERIOD = 5
+PPP_CONNECT_TIMEOUT = 90
+PPP_CONNECT_RETRY_INTERVAL = 5
 PPP_LOCK = threading.RLock()
+NETWORK_ACTIVITY_LOCK = threading.RLock()
+ppp_connect_started_at = None
+next_ppp_probe_at = 0.0
 
 # Define the NTP server
 NTP_SERVER = "pool.ntp.org"
@@ -92,23 +98,46 @@ def run_ppp_command(command, message):
     return False
 
 
+def begin_ppp_connection_attempt():
+    """Track a successful asynchronous PPP start until reachability is proved."""
+    global ppp_connect_started_at, next_ppp_probe_at
+    ppp_connect_started_at = time.monotonic()
+    next_ppp_probe_at = ppp_connect_started_at + PPP_CONNECT_GRACE_PERIOD
+
+
+def clear_ppp_connection_attempt():
+    global ppp_connect_started_at, next_ppp_probe_at
+    ppp_connect_started_at = None
+    next_ppp_probe_at = 0.0
+
+
 def start_ppp_link():
     """Ask pppd to bring up the configured Clipper peer without blocking startup."""
-    with PPP_LOCK:
-        return run_ppp_command(["pon", "clipper"], "Starting Clipper PPP link")
+    with NETWORK_ACTIVITY_LOCK, PPP_LOCK:
+        started = run_ppp_command(["pon", "clipper"], "Starting Clipper PPP link")
+        if started:
+            begin_ppp_connection_attempt()
+        else:
+            clear_ppp_connection_attempt()
+        return started
 
 
 def cycle_ppp_link():
     """Restart the Clipper PPP peer for explicit software restarts or recovery."""
-    with PPP_LOCK:
+    with NETWORK_ACTIVITY_LOCK, PPP_LOCK:
         run_ppp_command(["poff", "clipper"], "Stopping Clipper PPP link")
+        clear_ppp_connection_attempt()
         time.sleep(1)
-        return run_ppp_command(["pon", "clipper"], "Restarting Clipper PPP link")
+        started = run_ppp_command(["pon", "clipper"], "Restarting Clipper PPP link")
+        if started:
+            begin_ppp_connection_attempt()
+        return started
 
 
 startup_ppp_succeeded = None
 if __name__ == "__main__":
     startup_ppp_succeeded = start_ppp_link()
+    time.sleep(10)
 
 
 def sanitize_db_table(value):
@@ -437,9 +466,11 @@ network_status_lock = threading.Lock()
 last_network_check = 0.0
 last_network_available = None
 network_status = {
-    "ppp0": {"reachable": False, "checked_at": None, "error": "Not checked"},
-    "eth0": {"reachable": False, "checked_at": None, "error": "Not checked"},
+    "ppp0": {"reachable": False, "connecting": False, "checked_at": None, "error": "Not checked"},
+    "eth0": {"reachable": False, "connecting": False, "checked_at": None, "error": "Not checked"},
 }
+eth0_probe_suppressed = False
+eth0_probe_lock = threading.Lock()
 modem_status_lock = threading.Lock()
 modem_query_lock = threading.Lock()
 modem_status = {
@@ -962,7 +993,7 @@ def get_apn():
 @app.route('/network-status', methods=['GET'])
 def get_network_status_route():
     if request.args.get("refresh") == "1":
-        refresh_status_snapshot()
+        refresh_status_snapshot(force_interface_probes=True)
     return jsonify(get_status_snapshot()), 200
 
 
@@ -987,12 +1018,13 @@ def test_connection():
     test_payload = [{"ts": int(time.time() * 1000), "values": {"test": "connection_test"}}]
 
     try:
-        response = session.post(
-            test_url,
-            json=test_payload,
-            headers={"Content-Type": "application/json"},
-            timeout=15,
-        )
+        with NETWORK_ACTIVITY_LOCK:
+            response = session.post(
+                test_url,
+                json=test_payload,
+                headers={"Content-Type": "application/json"},
+                timeout=15,
+            )
         if response.ok:
             logging.info("Test connection succeeded via the kernel-selected route.")
             return jsonify({
@@ -1250,44 +1282,102 @@ def configure_ip():
         logging.info("IP address 192.168.5.1 is already configured.")
 
 def probe_interface_connection(interface, timeout=NETWORK_PROBE_TIMEOUT):
-    """Test outbound internet reachability bound to one interface."""
+    """Test outbound internet reachability bound to one interface, retrying once."""
+    last_error = "Probe failed"
+    session = None
     try:
-        with get_session(interface).get(
-            NETWORK_PROBE_URL,
-            timeout=timeout,
-            allow_redirects=False,
-        ) as response:
-            return {
-                "reachable": response.status_code in (200, 204),
-                "checked_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
-                "error": None if response.status_code in (200, 204) else
-                    f"Probe endpoint returned HTTP {response.status_code}",
-            }
+        with NETWORK_ACTIVITY_LOCK:
+            session = get_session(interface)
+            for attempt in range(2):
+                try:
+                    response = session.get(
+                        NETWORK_PROBE_URL,
+                        timeout=timeout,
+                        allow_redirects=False,
+                    )
+                    with response:
+                        if response.status_code in (200, 204):
+                            return {
+                                "reachable": True,
+                                "checked_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
+                                "error": None,
+                            }
+                        last_error = f"Probe endpoint returned HTTP {response.status_code}"
+                except Exception as exc:
+                    last_error = f"{type(exc).__name__}: {exc}"
+
+                if attempt == 0:
+                    time.sleep(0.5)
     except Exception as exc:
-        return {
-            "reachable": False,
-            "checked_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
-            "error": f"{type(exc).__name__}: {exc}",
-        }
+        last_error = f"{type(exc).__name__}: {exc}"
+    finally:
+        if session is not None:
+            session.close()
+
+    return {
+        "reachable": False,
+        "checked_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
+        "error": last_error,
+    }
 
 
-def refresh_network_status():
-    """Update per-interface internet status using independent bound requests."""
+def refresh_network_status(force_eth0=False):
+    """Refresh ppp0 status and optionally retry a previously unavailable eth0."""
+    global ppp_connect_started_at, next_ppp_probe_at, eth0_probe_suppressed
     for interface in ("ppp0", "eth0"):
         if interface == "ppp0":
-            with PPP_LOCK:
-                status = probe_interface_connection(interface)
+            with NETWORK_ACTIVITY_LOCK, PPP_LOCK:
+                now = time.monotonic()
+                attempt_started = ppp_connect_started_at
+                attempt_in_progress = (
+                    attempt_started is not None
+                    and now - attempt_started < PPP_CONNECT_TIMEOUT
+                )
+                if attempt_in_progress and now < next_ppp_probe_at:
+                    status = {
+                        "reachable": False,
+                        "connecting": True,
+                        "checked_at": None,
+                        "error": None,
+                    }
+                else:
+                    status = probe_interface_connection(interface)
+                    status["connecting"] = False
+                    probe_completed_at = time.monotonic()
+                    if status["reachable"]:
+                        ppp_connect_started_at = None
+                        next_ppp_probe_at = 0.0
+                    elif (
+                        attempt_started is not None
+                        and probe_completed_at - attempt_started < PPP_CONNECT_TIMEOUT
+                    ):
+                        next_ppp_probe_at = (
+                            probe_completed_at + PPP_CONNECT_RETRY_INTERVAL
+                        )
+                        status["connecting"] = True
+                    else:
+                        ppp_connect_started_at = None
+                        next_ppp_probe_at = 0.0
+                        status["connecting"] = False
         else:
-            status = probe_interface_connection(interface)
+            with eth0_probe_lock:
+                if eth0_probe_suppressed and not force_eth0:
+                    continue
+                if force_eth0:
+                    eth0_probe_suppressed = False
+                status = probe_interface_connection(interface)
+                status["connecting"] = False
+                eth0_probe_suppressed = not status["reachable"]
         with network_status_lock:
             previous_status = network_status[interface]
             previous = previous_status["reachable"]
-            previous_error = previous_status["error"]
             network_status[interface] = status
         if status["reachable"]:
             if not previous:
                 logging.info("%s internet probe succeeded.", interface)
-        elif previous or previous_error != status["error"]:
+        elif not status["connecting"] and (
+            previous or previous_status["checked_at"] is None
+        ):
             logging.warning("%s internet probe failed: %s", interface, status["error"])
     return get_network_status()
 
@@ -1301,7 +1391,7 @@ def check_network(force=False):
     """Check connectivity through the kernel's normal route, with bounded retries."""
     global last_network_check, last_network_available, net
     now = time.monotonic()
-    with network_status_lock:
+    with NETWORK_ACTIVITY_LOCK, network_status_lock:
         if not force and now - last_network_check < NETWORK_CHECK_INTERVAL:
             return last_network_available
 
@@ -1334,8 +1424,12 @@ def network_monitor_loop():
     while True:
         refresh_network_status()
         check_network()
-        ppp_connected = get_network_status()["ppp0"]["reachable"]
-        failures = 0 if ppp_connected else failures + 1
+        ppp_status = get_network_status()["ppp0"]
+        failures = (
+            0
+            if ppp_status["reachable"] or ppp_status["connecting"]
+            else failures + 1
+        )
         if failures >= 3 and time.monotonic() >= next_ppp_retry:
             logging.error(
                 "ppp0 has failed three consecutive internet checks; attempting PPP recovery."
@@ -1343,7 +1437,11 @@ def network_monitor_loop():
             cycle_ppp_link()
             next_ppp_retry = time.monotonic() + PPP_RETRY_INTERVAL
             failures = 0
-        time.sleep(STATUS_REFRESH_INTERVAL)
+        time.sleep(
+            PPP_CONNECT_RETRY_INTERVAL
+            if ppp_status["connecting"]
+            else STATUS_REFRESH_INTERVAL
+        )
 
 
 def send_modem_command(connection, command, timeout=3):
@@ -1470,7 +1568,7 @@ def query_modem_status():
         "error": None,
     }
 
-    with modem_query_lock, PPP_LOCK:
+    with NETWORK_ACTIVITY_LOCK, modem_query_lock, PPP_LOCK:
         resume_ppp = False
         try:
             try:
@@ -1487,6 +1585,7 @@ def query_modem_status():
             if stopped.returncode == 0:
                 logging.info("Paused PPP for modem status query.")
                 resume_ppp = True
+                clear_ppp_connection_attempt()
             else:
                 detail = (stopped.stderr or stopped.stdout or "").strip()
                 pppd_process = subprocess.run(
@@ -1509,6 +1608,7 @@ def query_modem_status():
                     detail or "no output",
                 )
                 resume_ppp = True
+                clear_ppp_connection_attempt()
             time.sleep(1)
 
             import serial
@@ -1575,10 +1675,14 @@ def query_modem_status():
         finally:
             if resume_ppp:
                 try:
-                    if not run_ppp_command(
+                    resumed = run_ppp_command(
                         ["pon", "clipper"],
                         "Resuming Clipper PPP after modem query",
-                    ):
+                    )
+                    if resumed:
+                        begin_ppp_connection_attempt()
+                    else:
+                        clear_ppp_connection_attempt()
                         resume_error = "Failed to resume PPP after modem status query"
                         result["error"] = (
                             f"{result['error']}; {resume_error}"
@@ -1594,10 +1698,9 @@ def query_modem_status():
         return copy.deepcopy(modem_status)
 
 
-def refresh_status_snapshot():
-    """Collect current network and modem diagnostics for display or telemetry."""
-    refresh_modem_status()
-    refresh_network_status()
+def refresh_status_snapshot(force_interface_probes=False):
+    """Refresh interface probes without pausing PPP for a modem AT query."""
+    refresh_network_status(force_eth0=force_interface_probes)
     return get_status_snapshot()
 
 
@@ -1623,7 +1726,9 @@ def get_status_snapshot():
 
 
 def collect_daily_diagnostics():
-    snapshot = refresh_status_snapshot()
+    refresh_modem_status()
+    refresh_network_status()
+    snapshot = get_status_snapshot()
     modem = snapshot["modem"]
     interfaces = snapshot["interfaces"]
     values = {
@@ -1790,6 +1895,7 @@ if __name__ == "__main__":
             "check_interval": config_data.get("check_interval", 5),
             "http_timeout": 20,
             "connectivity_check": check_network,
+            "network_operation_lock": NETWORK_ACTIVITY_LOCK,
             "diagnostics_provider": collect_daily_diagnostics,
             "diagnostics_interval": DAILY_DIAGNOSTICS_INTERVAL,
         }

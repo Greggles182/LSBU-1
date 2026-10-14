@@ -357,6 +357,10 @@
             background: #f44336;
         }
 
+        .status-indicator.connecting {
+            background: #ffca28;
+        }
+
         .signal-meter {
             display: flex;
             align-items: flex-end;
@@ -631,14 +635,15 @@
                 ['ppp0', 'eth0'].forEach(function(interfaceName) {
                     const state = status.interfaces[interfaceName] || {};
                     const reachable = state.reachable === true;
+                    const connecting = state.connecting === true;
                     document.getElementById(`${interfaceName}Status`).textContent =
-                        reachable ? 'Reachable' : 'Probe failed';
+                        reachable ? 'Reachable' : (connecting ? 'Connecting…' : 'Not available');
                     const indicator = document.getElementById(`${interfaceName}Indicator`);
                     indicator.classList.toggle('online', reachable);
-                    indicator.classList.toggle('offline', !reachable);
+                    indicator.classList.toggle('connecting', connecting);
+                    indicator.classList.toggle('offline', !reachable && !connecting);
                     indicator.title = state.error || '';
-                    document.getElementById(`${interfaceName}Error`).textContent =
-                        state.error || '';
+                    document.getElementById(`${interfaceName}Error`).textContent = '';
                 });
 
                 document.getElementById('routeStatus').textContent =
