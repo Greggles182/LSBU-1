@@ -2004,6 +2004,15 @@ def remove_table_and_images():
         logging.error(f"Error removing table '{table}' from database: {e}")
         return f"Error removing table/images: {e}", 500
     
+def prune_exports(max_age_days=14, directory="/var/www/html/dl"):
+    cutoff = time.time() - max_age_days * 86400
+    for name in os.listdir(directory):
+        path = os.path.join(directory, name)
+        try:
+            if os.path.isfile(path) and os.path.getmtime(path) < cutoff:
+                os.unlink(path)
+        except OSError:
+            logging.exception("Could not prune %s", path)
 
 if __name__ == "__main__":
     if platform.system() == "Windows":
@@ -2014,6 +2023,7 @@ if __name__ == "__main__":
     startup_ppp_succeeded = start_ppp_link()
     initialize_hardware()
     initialize_configuration()
+    prune_exports()
 
     if startup_ppp_succeeded:
         logging.info("PPP startup command completed; checking actual ppp0 reachability.")
