@@ -1726,46 +1726,28 @@ def get_status_snapshot():
 
 
 def collect_daily_diagnostics():
-    refresh_modem_status()
-    refresh_network_status()
-    snapshot = get_status_snapshot()
-    modem = snapshot["modem"]
-    interfaces = snapshot["interfaces"]
+    """Once-a-day snapshot of exactly what the LOG-6 dashboard displays.
+
+    Order matters: interface reachability is probed BEFORE the modem query, because the
+    modem query pauses PPP and restarts it, and ppp0 reads as not reachable (still
+    connecting) for a while afterwards.
+    """
+    refresh_network_status(force_eth0=True)
+    interfaces = get_network_status()
+    modem = refresh_modem_status()  # pauses PPP for a couple of seconds - daily only
     values = {
-        "ppp0_reachable": interfaces["ppp0"]["reachable"],
-        "eth0_reachable": interfaces["eth0"]["reachable"],
-        "network_available": snapshot["network_available"],
-        "modem_attached": modem["attached"],
-        "modem_status": "ok" if not modem["error"] else "error",
-        "sim_state": modem["sim_state"],
-        "signal_bars": modem["signal_bars"],
-        "modem_checked_at": modem["checked_at"] or "",
-        "modem_model": "A7683E",
+        "eth0_reachable": bool(interfaces.get("eth0", {}).get("reachable")),
+        "ppp0_reachable": bool(interfaces.get("ppp0", {}).get("reachable")),
+        # -1 = the modem could not be queried (dashboard shows a dash, not a false 0)
+        "signal_bars": modem["signal_bars"] if modem.get("signal_response") else -1,
     }
-    for key in (
-        "manufacturer",
-        "model",
-        "firmware",
-        "sim_response",
-        "signal_response",
-        "signal_rssi",
-        "signal_dbm",
-        "signal_ber",
-        "signal_percent",
-        "registration_status",
-        "operator_status",
-        "packet_attachment_status",
-    ):
-        value = modem.get(key)
-        if value is not None:
-            values[key] = value
-    for interface in ("ppp0", "eth0"):
-        status = interfaces[interface]
-        values[f"{interface}_checked_at"] = status.get("checked_at") or ""
-        if status.get("error"):
-            values[f"{interface}_error"] = str(status["error"])[:240]
-    if modem["error"]:
-        values["modem_error"] = str(modem["error"])[:240]
+    cpu_temp = get_cpu_temp()
+    if cpu_temp is not None:
+        values["cpu_temp_c"] = round(cpu_temp, 1)
+    try:
+        values["disk_used_percent"] = get_sd_card_usage()["used_percent"]
+    except Exception:
+        logging.exception("Could not read disk usage for daily diagnostics")
     return values
 
 
