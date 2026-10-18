@@ -2,14 +2,18 @@ from flask import *
 from flask_cors import CORS
 from waitress import serve
 from ntplib import NTPClient
-import os, time as time, json, copy, shutil, logging, platform, sqlite3, requests, threading, sys, subprocess, zipfile, re, struct, psutil, smbus # pyright: ignore[reportMissingModuleSource, reportMissingImports]
+import os, time as time, json, copy, shutil, logging, platform, sqlite3, requests, threading # pyright: ignore[reportMissingModuleSource, reportMissingImports]
+import socket, sys, subprocess, zipfile, re, struct, psutil, smbus # pyright: ignore[reportMissingModuleSource, reportMissingImports]
 from glob import glob
 from thingsboard_uploader import start_thingsboard_uploader
 from bounded_logging import SizeCappedFileHandler
 from network_utils import get_session
 from pijuice import PiJuice # type: ignore
 from pymodbus.client import ModbusSerialClient  # type: ignore
+import RPi.GPIO as IO # type: ignore
 
+# Constants
+# ---------
 # Clipper only needs the APN for the PPP peer in almost all cases.
 # The user/password/auth fields are intentionally ignored here.
 DEFAULT_CARRIER_APNS = {
@@ -27,42 +31,146 @@ IDENTITY_FIELDS = [
     "custom_apn",
     "logger_ID",
 ]
+DEFAULT_CONFIG = {
+    "logInterval": 300,
+    "dbTable": "data",
+    "SHT": True,
+    "CamEnable": "none",
+    "thingsboard_enabled": False,
+    "thingsboard_url": "",
+    "thingsboard_token": "",
+    "batch_size": 100,
+    "check_interval": 5,
+    "cellular_enabled": False,
+    "active_carrier": "",
+    "custom_apn": {"apn": ""},
+    "logger_ID": "",
+}
+
+# Hardware constants
 MODEM_ATTACHED = True
 MODEM_SERIAL_PORT = "/dev/serial0"
 MODEM_BAUDRATE = 115200
+SHT3x_ADDR = 0x44
+SHT3x_SS = 0x2C
+SHT3x_HIGH = 0x06
+SHT3x_READ = 0x00
+REGISTER_MAP = {
+    0x0000: "Voltage (Volts)",
+    0x0006: "Current (Amps)",
+    0x000C: "Active Power (Watts)",
+    0x0156: "Energy (kWh)",
+    0x0046: "Hertz (Hz)",
+}
+PORT = "/dev/ttyUSB0"
+BAUDRATE = 9600
+PARITY = "N"
+STOPBITS = 1
+BYTESIZE = 8
+TIMEOUT = 1
+FAN_PIN = 22
+
+# Network and timing constants
 NETWORK_PROBE_URL = "https://www.google.com/generate_204"
 NETWORK_PROBE_TIMEOUT = 4
 NETWORK_CHECK_INTERVAL = 30
-PPP_RETRY_INTERVAL = 300
 STATUS_REFRESH_INTERVAL = 60
 DAILY_DIAGNOSTICS_INTERVAL = 24 * 60 * 60
 PPP_CONNECT_GRACE_PERIOD = 5
 PPP_CONNECT_TIMEOUT = 90
 PPP_CONNECT_RETRY_INTERVAL = 5
-PPP_LOCK = threading.RLock()
-NETWORK_ACTIVITY_LOCK = threading.RLock()
-ppp_connect_started_at = None
-next_ppp_probe_at = 0.0
-
-# Define the NTP server
+PPP_STOP_TIMEOUT = 10
+PPP_STOP_POLL_INTERVAL = 0.25
 NTP_SERVER = "pool.ntp.org"
+
+# Storage and validation constants
 DB_TABLE_PATTERN = r"[A-Za-z0-9_-]+"
 DB_TABLE_MAX_LENGTH = 50
-
 db_path = "/var/www/html/example.db"
 log_path = "/var/www/html/server.log"
 config_path = "/var/www/html/data.json"
 identity_path = "/var/www/html/device_identity.json"
 carrier_apns_path = "/var/www/html/carrier_apns.json"
 
-server_log_handler = SizeCappedFileHandler(log_path, encoding="utf-8")
-server_log_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-logging.getLogger().setLevel(logging.INFO)
-logging.getLogger().addHandler(server_log_handler)
+# Globals
+# -------
+# Lock order for operations that need multiple locks:
+# NETWORK_ACTIVITY_LOCK -> modem_query_lock -> PPP_LOCK -> network_status_lock.
+server_log_handler = None
+startup_ppp_succeeded = None
+ppp_connect_started_at = None
+next_ppp_probe_at = 0.0
+PPP_LOCK = threading.RLock()
+NETWORK_ACTIVITY_LOCK = threading.RLock()
 
-if platform.system() == "Windows":
-    print("This does not work on Windows.")
-    sys.exit(1)
+pijuice = None
+bus = None
+client = None
+config_data = {}
+carrier_apns = {}
+config_lock = threading.RLock()
+network_status_lock = threading.Lock()
+last_network_check = 0.0
+last_network_available = None
+network_status = {
+    "ppp0": {"reachable": False, "connecting": False, "checked_at": None, "error": "Not checked"},
+    "eth0": {"reachable": False, "connecting": False, "checked_at": None, "error": "Not checked"},
+}
+eth0_probe_suppressed = False
+eth0_probe_lock = threading.Lock()
+modem_status_lock = threading.Lock()
+modem_query_lock = threading.Lock()
+modem_status = {
+    "attached": MODEM_ATTACHED,
+    "sim_state": "unknown",
+    "signal_rssi": None,
+    "signal_dbm": None,
+    "signal_ber": None,
+    "signal_percent": None,
+    "signal_bars": 0,
+    "manufacturer": None,
+    "model": "A7683E",
+    "firmware": None,
+    "sim_response": None,
+    "signal_response": None,
+    "registration_status": None,
+    "operator_status": None,
+    "packet_attachment_status": None,
+    "checked_at": None,
+    "error": "Not checked",
+}
+thingsboard_uploader = None
+net = False
+
+SENSITIVE = re.compile(r"token|pass|secret|pwd|apikey|api_key", re.I)
+
+# Flask must exist while the route decorators below are evaluated.
+app = Flask(__name__)
+CORS(app)
+
+
+def initialize_logging():
+    global server_log_handler
+    server_log_handler = SizeCappedFileHandler(log_path, encoding="utf-8")
+    server_log_handler.setFormatter(
+        logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+    )
+    logging.getLogger().setLevel(logging.INFO)
+    logging.getLogger().addHandler(server_log_handler)
+
+
+def initialize_hardware():
+    global pijuice, bus, client
+    pijuice = PiJuice(1, 0x14)
+    bus = smbus.SMBus(1)
+    client = ModbusSerialClient(
+        port=PORT,
+        baudrate=BAUDRATE,
+        parity=PARITY,
+        stopbits=STOPBITS,
+        bytesize=BYTESIZE,
+        timeout=TIMEOUT,
+    )
 
 
 def run_ppp_command(command, message):
@@ -99,16 +207,69 @@ def run_ppp_command(command, message):
 
 
 def begin_ppp_connection_attempt():
-    """Track a successful asynchronous PPP start until reachability is proved."""
+    """Track an accepted PPP start as connecting, not as reachable."""
     global ppp_connect_started_at, next_ppp_probe_at
     ppp_connect_started_at = time.monotonic()
     next_ppp_probe_at = ppp_connect_started_at + PPP_CONNECT_GRACE_PERIOD
+    with network_status_lock:
+        network_status["ppp0"] = {
+            "reachable": False,
+            "connecting": True,
+            "checked_at": None,
+            "error": None,
+        }
+    logging.info(
+        "PPP connection attempt started; grace period is %s seconds and timeout is %s seconds.",
+        PPP_CONNECT_GRACE_PERIOD,
+        PPP_CONNECT_TIMEOUT,
+    )
 
 
 def clear_ppp_connection_attempt():
     global ppp_connect_started_at, next_ppp_probe_at
     ppp_connect_started_at = None
     next_ppp_probe_at = 0.0
+
+
+def set_ppp_disconnected(error):
+    with network_status_lock:
+        network_status["ppp0"] = {
+            "reachable": False,
+            "connecting": False,
+            "checked_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
+            "error": error,
+        }
+
+
+def wait_for_pppd_stopped(timeout=PPP_STOP_TIMEOUT):
+    """Wait briefly for poff's asynchronous pppd shutdown to finish."""
+    deadline = time.monotonic() + timeout
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False, "pppd is still running after the stop timeout"
+
+        try:
+            process = subprocess.run(
+                ["pgrep", "-x", "pppd"],
+                capture_output=True,
+                text=True,
+                timeout=min(5, remaining),
+                check=False,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+            return False, f"could not confirm pppd stopped: {exc}"
+
+        if process.returncode == 1:
+            return True, None
+        if process.returncode != 0:
+            detail = (process.stderr or process.stdout or "").strip()
+            return False, f"could not confirm pppd stopped: {detail or process.returncode}"
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False, "pppd is still running after the stop timeout"
+        time.sleep(min(PPP_STOP_POLL_INTERVAL, remaining))
 
 
 def start_ppp_link():
@@ -119,25 +280,8 @@ def start_ppp_link():
             begin_ppp_connection_attempt()
         else:
             clear_ppp_connection_attempt()
+            set_ppp_disconnected("PPP start command failed")
         return started
-
-
-def cycle_ppp_link():
-    """Restart the Clipper PPP peer for explicit software restarts or recovery."""
-    with NETWORK_ACTIVITY_LOCK, PPP_LOCK:
-        run_ppp_command(["poff", "clipper"], "Stopping Clipper PPP link")
-        clear_ppp_connection_attempt()
-        time.sleep(1)
-        started = run_ppp_command(["pon", "clipper"], "Restarting Clipper PPP link")
-        if started:
-            begin_ppp_connection_attempt()
-        return started
-
-
-startup_ppp_succeeded = None
-if __name__ == "__main__":
-    startup_ppp_succeeded = start_ppp_link()
-    time.sleep(10)
 
 
 def sanitize_db_table(value):
@@ -201,38 +345,6 @@ def get_sd_card_usage():
     }
 
 
-pijuice = PiJuice(1, 0x14)
-bus = smbus.SMBus(1)
-
-# SHT3x hex adres
-SHT3x_ADDR		= 0x44
-SHT3x_SS		= 0x2C
-SHT3x_HIGH		= 0x06
-SHT3x_READ		= 0x00
-
-# Configuration
-REGISTER_MAP = {
-    0x0000: "Voltage (Volts)",
-    0x0006: "Current (Amps)",
-    0x000C: "Active Power (Watts)",
-    0x0156: "Energy (kWh)",
-    0x0046: "Hertz (Hz)",
-}
-
-PORT = '/dev/ttyUSB0'
-BAUDRATE = 9600
-PARITY = 'N'
-STOPBITS = 1
-BYTESIZE = 8
-TIMEOUT = 1
-client = ModbusSerialClient(
-    port=PORT,
-    baudrate=BAUDRATE,
-    parity=PARITY,
-    stopbits=STOPBITS,
-    bytesize=BYTESIZE,
-    timeout=TIMEOUT,
-)
 def read_register(client, address):
     try:
         response = client.read_input_registers(address=address, count=2)
@@ -399,110 +511,59 @@ def save_config_data(data=None):
     os.replace(temporary_path, config_path)
 
 
-default_config = {
-    "logInterval": 300,
-    "dbTable": "data",
-    "SHT": True,
-    "CamEnable": "none",
-    "thingsboard_enabled": False,
-    "thingsboard_url": "",
-    "thingsboard_token": "",
-    "batch_size": 100,
-    "check_interval": 5,
-    "cellular_enabled": False,
-    "active_carrier": "",
-    "custom_apn": {"apn": ""},
-    "logger_ID": "",
-}
-config_data = load_json_object(config_path)
-if not config_data:
-    config_data = copy.deepcopy(default_config)
-    logging.info("Created new configuration at %s", config_path)
+def initialize_configuration():
+    global config_data, carrier_apns
+    config_data = load_json_object(config_path)
+    if not config_data:
+        config_data = copy.deepcopy(DEFAULT_CONFIG)
+        logging.info("Created new configuration at %s", config_path)
 
-legacy_identity = load_json_object(identity_path)
-legacy_carrier_apns = load_json_object(carrier_apns_path)
-for key in IDENTITY_FIELDS:
-    current_value = config_data.get(key)
-    empty_custom_apn = (
-        key == "custom_apn"
-        and isinstance(current_value, dict)
-        and not str(current_value.get("apn", "")).strip()
-    )
-    if (
-        key in legacy_identity
-        and (current_value in (None, "", {}) or empty_custom_apn)
-    ):
-        config_data[key] = legacy_identity[key]
+    legacy_identity = load_json_object(identity_path)
+    legacy_carrier_apns = load_json_object(carrier_apns_path)
+    for key in IDENTITY_FIELDS:
+        current_value = config_data.get(key)
+        empty_custom_apn = (
+            key == "custom_apn"
+            and isinstance(current_value, dict)
+            and not str(current_value.get("apn", "")).strip()
+        )
+        if (
+            key in legacy_identity
+            and (current_value in (None, "", {}) or empty_custom_apn)
+        ):
+            config_data[key] = legacy_identity[key]
 
-carrier_apns = copy.deepcopy(DEFAULT_CARRIER_APNS)
-stored_carrier_apns = config_data.get("carrier_apns")
-if not isinstance(stored_carrier_apns, dict) or not stored_carrier_apns:
-    stored_carrier_apns = legacy_carrier_apns
-if isinstance(stored_carrier_apns, dict):
-    carrier_apns.update(stored_carrier_apns)
-config_data["carrier_apns"] = carrier_apns
+    carrier_apns = copy.deepcopy(DEFAULT_CARRIER_APNS)
+    stored_carrier_apns = config_data.get("carrier_apns")
+    if not isinstance(stored_carrier_apns, dict) or not stored_carrier_apns:
+        stored_carrier_apns = legacy_carrier_apns
+    if isinstance(stored_carrier_apns, dict):
+        carrier_apns.update(stored_carrier_apns)
+    config_data["carrier_apns"] = carrier_apns
 
-for key, value in default_config.items():
-    config_data.setdefault(key, copy.deepcopy(value))
-config_data.pop("uplink_mode", None)
+    for key, value in DEFAULT_CONFIG.items():
+        config_data.setdefault(key, copy.deepcopy(value))
+    config_data.pop("uplink_mode", None)
 
-original_db_table = config_data.get("dbTable")
-config_data["dbTable"] = sanitize_db_table(original_db_table)
-if config_data["dbTable"] != original_db_table:
-    logging.warning("Invalid dbTable in config; removed invalid characters or truncated its length.")
+    original_db_table = config_data.get("dbTable")
+    config_data["dbTable"] = sanitize_db_table(original_db_table)
+    if config_data["dbTable"] != original_db_table:
+        logging.warning(
+            "Invalid dbTable in config; removed invalid characters or truncated its length."
+        )
 
-save_config_data()
-for legacy_path in (identity_path, carrier_apns_path):
-    try:
-        os.remove(legacy_path)
-        logging.info("Removed migrated configuration file %s", legacy_path)
-    except FileNotFoundError:
-        pass
-    except OSError:
-        logging.exception("Failed to remove migrated configuration file %s", legacy_path)
-
-config_lock = threading.RLock()
-network_status_lock = threading.Lock()
-last_network_check = 0.0
-last_network_available = None
-network_status = {
-    "ppp0": {"reachable": False, "connecting": False, "checked_at": None, "error": "Not checked"},
-    "eth0": {"reachable": False, "connecting": False, "checked_at": None, "error": "Not checked"},
-}
-eth0_probe_suppressed = False
-eth0_probe_lock = threading.Lock()
-modem_status_lock = threading.Lock()
-modem_query_lock = threading.Lock()
-modem_status = {
-    "attached": MODEM_ATTACHED,
-    "sim_state": "unknown",
-    "signal_rssi": None,
-    "signal_dbm": None,
-    "signal_ber": None,
-    "signal_percent": None,
-    "signal_bars": 0,
-    "manufacturer": None,
-    "model": "A7683E",
-    "firmware": None,
-    "sim_response": None,
-    "signal_response": None,
-    "registration_status": None,
-    "operator_status": None,
-    "packet_attachment_status": None,
-    "checked_at": None,
-    "error": "Not checked",
-}
-thingsboard_uploader = None
-
-
-app = Flask(__name__)
-CORS(app)
-
-
-
-images_path = get_images_path()
-
-SENSITIVE = re.compile(r"token|pass|secret|pwd|apikey|api_key", re.I)
+    save_config_data()
+    for legacy_path in (identity_path, carrier_apns_path):
+        try:
+            os.remove(legacy_path)
+            logging.info("Removed migrated configuration file %s", legacy_path)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            logging.exception(
+                "Failed to remove migrated configuration file %s", legacy_path
+            )
+    logging.info("Loaded config data: %s", redact(config_data))
 
 def mask(value, keep=5):
     s = str(value)
@@ -520,10 +581,6 @@ def redact(obj, keep=5):
     if isinstance(obj, list):
         return [redact(i, keep) for i in obj]
     return obj
-
-logging.info(f"Loaded config data: {redact(config_data)}")
-
-
 
 def insert_data(ID, data):
     try:
@@ -570,9 +627,13 @@ def insert_data(ID, data):
         conn.close()
 
 def restartSoftware():
-    cycle_ppp_link()
-    subprocess.Popen(["sudo", "systemctl", "restart", "hostapd.service"]) # In addition to new midnight restart of it (systemctl list-timers)
-    subprocess.Popen(["sudo", "systemctl", "restart", "startup.service"])
+    def restartHelper():
+        subprocess.Popen(["sudo", "systemctl", "restart", "hostapd.service"]) # In addition to new midnight restart of it (systemctl list-timers)
+        subprocess.Popen(["sudo", "systemctl", "restart", "startup.service"])
+
+    timer = threading.Timer(2, restartHelper)
+    timer.daemon = True
+    timer.start()
 
 @app.route('/', methods=['POST', 'GET'])
 def handle_request():
@@ -994,6 +1055,7 @@ def get_apn():
 def get_network_status_route():
     if request.args.get("refresh") == "1":
         refresh_status_snapshot(force_interface_probes=True)
+        refresh_modem_status()
     return jsonify(get_status_snapshot()), 200
 
 
@@ -1281,8 +1343,64 @@ def configure_ip():
     else:
         logging.info("IP address 192.168.5.1 is already configured.")
 
+
+def describe_network_error(exc):
+    """Return bounded context while distinguishing DNS and interface binding failures."""
+    pending = [exc]
+    seen = set()
+    while pending:
+        current = pending.pop()
+        if not isinstance(current, BaseException) or id(current) in seen:
+            continue
+        seen.add(id(current))
+
+        if (
+            isinstance(current, socket.gaierror)
+            or type(current).__name__ == "NameResolutionError"
+        ):
+            category = "DNS resolution failed"
+        elif isinstance(current, requests.exceptions.SSLError):
+            category = "TLS negotiation failed"
+        elif isinstance(current, requests.exceptions.Timeout):
+            category = "network request timed out"
+        elif isinstance(current, OSError) and current.errno in (
+            getattr(socket, "EACCES", 13),
+            getattr(socket, "EPERM", 1),
+        ):
+            category = "interface socket binding permission denied"
+        elif isinstance(current, OSError) and current.errno in (
+            getattr(socket, "ENODEV", 19),
+            getattr(socket, "ENXIO", 6),
+        ):
+            category = "interface socket binding failed"
+        else:
+            category = None
+
+        if category:
+            return f"{category}: {exc}"
+
+        pending.extend(
+            item
+            for item in (
+                current.__cause__,
+                current.__context__,
+                getattr(current, "reason", None),
+                *current.args,
+            )
+            if isinstance(item, BaseException)
+        )
+
+    return f"{type(exc).__name__}: {exc}"
+
+
+def network_error_category(error):
+    if not error:
+        return None
+    return error.split(":", 1)[0]
+
+
 def probe_interface_connection(interface, timeout=NETWORK_PROBE_TIMEOUT):
-    """Test outbound internet reachability bound to one interface, retrying once."""
+    """Probe an interface-bound HTTP socket; system DNS lookup is not interface-bound."""
     last_error = "Probe failed"
     session = None
     try:
@@ -1304,15 +1422,22 @@ def probe_interface_connection(interface, timeout=NETWORK_PROBE_TIMEOUT):
                             }
                         last_error = f"Probe endpoint returned HTTP {response.status_code}"
                 except Exception as exc:
-                    last_error = f"{type(exc).__name__}: {exc}"
+                    last_error = describe_network_error(exc)
 
                 if attempt == 0:
                     time.sleep(0.5)
     except Exception as exc:
-        last_error = f"{type(exc).__name__}: {exc}"
+        last_error = describe_network_error(exc)
     finally:
         if session is not None:
-            session.close()
+            try:
+                session.close()
+            except Exception as exc:
+                logging.warning(
+                    "Could not close %s probe session: %s",
+                    interface,
+                    describe_network_error(exc),
+                )
 
     return {
         "reachable": False,
@@ -1329,36 +1454,63 @@ def refresh_network_status(force_eth0=False):
             with NETWORK_ACTIVITY_LOCK, PPP_LOCK:
                 now = time.monotonic()
                 attempt_started = ppp_connect_started_at
-                attempt_in_progress = (
-                    attempt_started is not None
-                    and now - attempt_started < PPP_CONNECT_TIMEOUT
+                previous_status = get_network_status()["ppp0"]
+                attempt_deadline = (
+                    attempt_started + PPP_CONNECT_TIMEOUT
+                    if attempt_started is not None
+                    else None
                 )
-                if attempt_in_progress and now < next_ppp_probe_at:
+                if attempt_deadline is not None and now >= attempt_deadline:
+                    clear_ppp_connection_attempt()
                     status = {
                         "reachable": False,
-                        "connecting": True,
-                        "checked_at": None,
-                        "error": None,
+                        "connecting": False,
+                        "checked_at": time.strftime(
+                            "%Y-%m-%d %H:%M:%S", time.localtime()
+                        ),
+                        "error": (
+                            f"PPP connection attempt timed out after "
+                            f"{PPP_CONNECT_TIMEOUT} seconds"
+                        ),
                     }
+                elif attempt_started is not None and now < next_ppp_probe_at:
+                    status = previous_status
+                    status["reachable"] = False
+                    status["connecting"] = True
                 else:
                     status = probe_interface_connection(interface)
                     status["connecting"] = False
                     probe_completed_at = time.monotonic()
-                    if status["reachable"]:
+                    if (
+                        attempt_started is not None
+                        and probe_completed_at >= attempt_deadline
+                    ):
+                        clear_ppp_connection_attempt()
+                        status["reachable"] = False
+                        status["connecting"] = False
+                        status["error"] = (
+                            f"PPP connection attempt timed out after "
+                            f"{PPP_CONNECT_TIMEOUT} seconds"
+                        )
+                    elif status["reachable"]:
                         ppp_connect_started_at = None
                         next_ppp_probe_at = 0.0
                     elif (
                         attempt_started is not None
-                        and probe_completed_at - attempt_started < PPP_CONNECT_TIMEOUT
+                        and probe_completed_at < attempt_deadline
                     ):
                         next_ppp_probe_at = (
                             probe_completed_at + PPP_CONNECT_RETRY_INTERVAL
                         )
                         status["connecting"] = True
                     else:
-                        ppp_connect_started_at = None
-                        next_ppp_probe_at = 0.0
+                        clear_ppp_connection_attempt()
                         status["connecting"] = False
+                        if attempt_started is not None:
+                            status["error"] = (
+                                f"PPP connection attempt timed out after "
+                                f"{PPP_CONNECT_TIMEOUT} seconds"
+                            )
         else:
             with eth0_probe_lock:
                 if eth0_probe_suppressed and not force_eth0:
@@ -1375,8 +1527,20 @@ def refresh_network_status(force_eth0=False):
         if status["reachable"]:
             if not previous:
                 logging.info("%s internet probe succeeded.", interface)
+        elif status["connecting"] and status["error"]:
+            if network_error_category(previous_status["error"]) != network_error_category(
+                status["error"]
+            ):
+                logging.warning(
+                    "%s probe failed while PPP is connecting: %s",
+                    interface,
+                    status["error"],
+                )
         elif not status["connecting"] and (
-            previous or previous_status["checked_at"] is None
+            previous
+            or previous_status["checked_at"] is None
+            or network_error_category(previous_status["error"])
+            != network_error_category(status["error"])
         ):
             logging.warning("%s internet probe failed: %s", interface, status["error"])
     return get_network_status()
@@ -1390,53 +1554,40 @@ def get_network_status():
 def check_network(force=False):
     """Check connectivity through the kernel's normal route, with bounded retries."""
     global last_network_check, last_network_available, net
-    now = time.monotonic()
-    with NETWORK_ACTIVITY_LOCK, network_status_lock:
-        if not force and now - last_network_check < NETWORK_CHECK_INTERVAL:
-            return last_network_available
+    with NETWORK_ACTIVITY_LOCK:
+        now = time.monotonic()
+        with network_status_lock:
+            if not force and now - last_network_check < NETWORK_CHECK_INTERVAL:
+                return last_network_available
+            last_network_check = now
 
-        last_network_check = now
         try:
             response = requests.get(NETWORK_PROBE_URL, timeout=NETWORK_PROBE_TIMEOUT)
-            available = response.status_code in (200, 204)
-            response.close()
-            error = None if available else f"HTTP {response.status_code}"
-        except requests.RequestException as exc:
+            try:
+                available = response.status_code in (200, 204)
+                error = None if available else f"HTTP {response.status_code}"
+            finally:
+                response.close()
+        except (requests.RequestException, socket.gaierror) as exc:
             available = False
-            error = f"{type(exc).__name__}: {exc}"
+            error = describe_network_error(exc)
 
-        if last_network_available is None or available != last_network_available:
-            if available:
-                logging.info("Kernel-routed internet connection is available.")
-            else:
-                logging.error("No usable kernel-routed internet connection: %s", error)
-        last_network_available = available
-        net = available
-        return available
-
-
-net = False
+        with network_status_lock:
+            if last_network_available is None or available != last_network_available:
+                if available:
+                    logging.info("Kernel-routed internet connection is available.")
+                else:
+                    logging.error("No usable kernel-routed internet connection: %s", error)
+            last_network_available = available
+            net = available
+            return available
 
 
 def network_monitor_loop():
-    failures = 0
-    next_ppp_retry = 0.0
     while True:
         refresh_network_status()
         check_network()
         ppp_status = get_network_status()["ppp0"]
-        failures = (
-            0
-            if ppp_status["reachable"] or ppp_status["connecting"]
-            else failures + 1
-        )
-        if failures >= 3 and time.monotonic() >= next_ppp_retry:
-            logging.error(
-                "ppp0 has failed three consecutive internet checks; attempting PPP recovery."
-            )
-            cycle_ppp_link()
-            next_ppp_retry = time.monotonic() + PPP_RETRY_INTERVAL
-            failures = 0
         time.sleep(
             PPP_CONNECT_RETRY_INTERVAL
             if ppp_status["connecting"]
@@ -1568,9 +1719,11 @@ def query_modem_status():
         "error": None,
     }
 
+    # Keep the global lock order: network activity, modem query, then PPP.
     with NETWORK_ACTIVITY_LOCK, modem_query_lock, PPP_LOCK:
         resume_ppp = False
         try:
+            stop_error = None
             try:
                 stopped = subprocess.run(
                     ["sudo", "poff", "clipper"],
@@ -1580,35 +1733,38 @@ def query_modem_status():
                     check=False,
                 )
             except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
-                raise RuntimeError(f"Could not safely stop PPP before AT query: {exc}") from exc
-
-            if stopped.returncode == 0:
-                logging.info("Paused PPP for modem status query.")
-                resume_ppp = True
-                clear_ppp_connection_attempt()
+                stop_error = f"{type(exc).__name__}: {exc}"
             else:
-                detail = (stopped.stderr or stopped.stdout or "").strip()
-                pppd_process = subprocess.run(
-                    ["pgrep", "-x", "pppd"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                    check=False,
+                if stopped.returncode != 0:
+                    stop_error = (stopped.stderr or stopped.stdout or "").strip()
+
+            pppd_process = subprocess.run(
+                ["pgrep", "-x", "pppd"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            if pppd_process.returncode == 0:
+                raise RuntimeError(
+                    "Could not safely access modem serial port; pppd is still running"
                 )
-                if pppd_process.returncode == 0:
-                    raise RuntimeError(
-                        "poff did not stop pppd; refusing to access the PPP serial device"
-                    )
-                if pppd_process.returncode != 1:
-                    raise RuntimeError(
-                        f"Could not confirm pppd stopped: {pppd_process.stderr.strip()}"
-                    )
+            if pppd_process.returncode != 1:
+                raise RuntimeError(
+                    "Could not confirm pppd stopped: "
+                    f"{pppd_process.stderr.strip() or pppd_process.stdout.strip()}"
+                )
+
+            resume_ppp = True
+            clear_ppp_connection_attempt()
+            set_ppp_disconnected("PPP paused for modem status query")
+            if stop_error:
                 logging.info(
-                    "PPP was already down before modem query: %s",
-                    detail or "no output",
+                    "PPP was confirmed stopped after poff reported an error: %s",
+                    stop_error,
                 )
-                resume_ppp = True
-                clear_ppp_connection_attempt()
+            else:
+                logging.info("PPP stopped and serial port is available for modem query.")
             time.sleep(1)
 
             import serial
@@ -1683,6 +1839,9 @@ def query_modem_status():
                         begin_ppp_connection_attempt()
                     else:
                         clear_ppp_connection_attempt()
+                        set_ppp_disconnected(
+                            "Failed to resume PPP after modem status query"
+                        )
                         resume_error = "Failed to resume PPP after modem status query"
                         result["error"] = (
                             f"{result['error']}; {resume_error}"
@@ -1691,6 +1850,10 @@ def query_modem_status():
                         )
                 except Exception:
                     logging.exception("Failed to resume PPP after modem status query.")
+                    clear_ppp_connection_attempt()
+                    set_ppp_disconnected(
+                        "Unexpected failure resuming PPP after modem status query"
+                    )
                     result["error"] = "Unexpected failure resuming PPP after modem status query"
 
     with modem_status_lock:
@@ -1751,14 +1914,11 @@ def collect_daily_diagnostics():
     return values
 
 
-pin = 22 # CHANGED FROM 14!!!!! (14 was HW UART)
 def fan():
-    import RPi.GPIO as IO          # type: ignore # Calling GPIO to allow use of the GPIO pins
-
     IO.setwarnings(False)          # Do not show any GPIO warnings
     IO.setmode (IO.BCM)            # BCM pin numbers - PIN8 as ‘GPIO14’
-    IO.setup(pin,IO.OUT)            # Initialize GPIO14 as our fan output pin
-    fan = IO.PWM(pin,100)           # Set GPIO14 as a PWM output, with 100Hz frequency (this should match your fans specified PWM frequency)
+    IO.setup(FAN_PIN,IO.OUT)        # Initialize GPIO14 as our fan output pin
+    fan = IO.PWM(FAN_PIN,100)       # Set GPIO14 as a PWM output, with 100Hz frequency (this should match your fans specified PWM frequency)
     fan.start(0)                   # Generate a PWM signal with a 0% duty cycle (fan off)
 
     def get_temp():                              # Function to read in the CPU temperature and return it as a float in degrees celcius
@@ -1846,16 +2006,27 @@ def remove_table_and_images():
     
 
 if __name__ == "__main__":
+    if platform.system() == "Windows":
+        print("This does not work on Windows.")
+        sys.exit(1)
+
+    initialize_logging()
+    startup_ppp_succeeded = start_ppp_link()
+    initialize_hardware()
+    initialize_configuration()
+
     if startup_ppp_succeeded:
         logging.info("PPP startup command completed; checking actual ppp0 reachability.")
     else:
-        logging.error("PPP did not start; local data logging will continue while recovery retries.")
+        logging.error(
+            "PPP did not start; local data logging will continue. "
+            "PPP will not be restarted automatically."
+        )
     configure_ip()
     threading.Thread(target=run_flask, daemon=True).start()
     threading.Thread(target=collect_results, daemon=True).start()
     threading.Thread(target=fan, daemon=True).start()
     threading.Thread(target=network_monitor_loop, daemon=True).start()
-    threading.Thread(target=refresh_modem_status, daemon=True).start()
     if config_data["CamEnable"] in ("door", "doorcam"):
         def start_camera_thread():
             subprocess.run(["sudo", "python3", "/home/pi/Camera-handle.py"])
@@ -1866,7 +2037,7 @@ if __name__ == "__main__":
             logging.error(f"Failed to start camera module: {e}")
     
     # Start the uploader regardless of startup connectivity; it waits for the
-    # kernel-selected route while local sensor collection continues.
+    # kernel-selected route.
     if config_data.get("thingsboard_enabled", False):
         thingsboard_config = {
             "thingsboard_url": config_data.get("thingsboard_url", ""),
@@ -1889,4 +2060,4 @@ if __name__ == "__main__":
         else:
             logging.error("ThingsBoard uploader failed to start (misconfigured)")
     while True:
-        time.sleep(5)
+        time.sleep(3600)  # Main thread sleeps; all work is done in background threads
